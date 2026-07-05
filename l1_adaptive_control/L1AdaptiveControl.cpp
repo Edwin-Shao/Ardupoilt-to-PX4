@@ -290,6 +290,19 @@ PX4_INFO("geometric errors: ep=[%.3f %.3f %.3f] ev=[%.3f %.3f %.3f]",
 		 (double)_geometric_output.desired_angular_velocity_body[1],
 		 (double)_geometric_output.desired_angular_velocity_body[2]);
 
+	PX4_INFO("geometric moment split: Mpd=[%.5f %.5f %.5f] Mgyro=[%.5f %.5f %.5f]",
+		 (double)_geometric_output.pd_moment_newton_meter[0],
+		 (double)_geometric_output.pd_moment_newton_meter[1],
+		 (double)_geometric_output.pd_moment_newton_meter[2],
+		 (double)_geometric_output.gyro_moment_newton_meter[0],
+		 (double)_geometric_output.gyro_moment_newton_meter[1],
+		 (double)_geometric_output.gyro_moment_newton_meter[2]);
+
+	PX4_INFO("geometric inertia: Jomega=[%.5f %.5f %.5f]",
+		 (double)_geometric_output.j_omega_body[0],
+		 (double)_geometric_output.j_omega_body[1],
+		 (double)_geometric_output.j_omega_body[2]);
+
 	PX4_INFO("geometric basic output: F=%.3f N M=[%.3f %.3f %.3f] Nm",
 		 (double)_geometric_output.thrust_newton,
 		 (double)_geometric_output.moment_newton_meter[0],

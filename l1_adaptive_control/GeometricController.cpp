@@ -17,7 +17,7 @@ static constexpr float KV_Y = 3.0f;
 static constexpr float KV_Z = 4.0f;
 
 // Temporary attitude gains.
-// Later these should become PX4 parameters, matching the original g.GeoCtrl_KR* / g.GeoCtrl_KO*.
+// Later these should become PX4 parameters.
 static constexpr float KR_X = 0.08f;
 static constexpr float KR_Y = 0.08f;
 static constexpr float KR_Z = 0.04f;
@@ -25,6 +25,12 @@ static constexpr float KR_Z = 0.04f;
 static constexpr float KO_X = 0.015f;
 static constexpr float KO_Y = 0.015f;
 static constexpr float KO_Z = 0.010f;
+
+// Temporary inertia values [kg*m^2].
+// Later these should become L1_JXX / L1_JYY / L1_JZZ parameters.
+static constexpr float JXX_KGM2 = 0.005f;
+static constexpr float JYY_KGM2 = 0.005f;
+static constexpr float JZZ_KGM2 = 0.009f;
 
 float dot3(const float a[3], const float b[3])
 {
@@ -105,8 +111,6 @@ A[i][j] = 0.5f * (RdT_R - RT_Rd);
 }
 }
 
-// Same vee convention as the original L1Quad code:
-// vee(A) = [A32, A13, A21] using 1-based matrix notation.
 eR[0] = A[1][2];
 eR[1] = A[2][0];
 eR[2] = A[0][1];
@@ -120,17 +124,11 @@ _last_input = input;
 
 output.timestamp_us = input.timestamp_us;
 
-// ------------------------------------------------------------
-// 1. Translational errors
-// ------------------------------------------------------------
 for (int i = 0; i < 3; i++) {
 output.position_error_ned[i] = input.position_ned[i] - input.target_position_ned[i];
 output.velocity_error_ned[i] = input.velocity_ned[i] - input.target_velocity_ned[i];
 }
 
-// ------------------------------------------------------------
-// 2. Target force in NED
-// ------------------------------------------------------------
 output.target_force_ned[0] =
 VEHICLE_MASS_KG * input.target_acceleration_ned[0]
 - KP_X * output.position_error_ned[0]
@@ -146,24 +144,13 @@ VEHICLE_MASS_KG * (input.target_acceleration_ned[2] - GRAVITY_MSS)
 - KP_Z * output.position_error_ned[2]
 - KV_Z * output.velocity_error_ned[2];
 
-// ------------------------------------------------------------
-// 3. Current attitude matrix R and body z-axis
-// ------------------------------------------------------------
 float R[3][3]{};
 quat_to_rotation_matrix_body_to_ned(input.quat_body_to_ned, R);
 
 get_matrix_column(R, 2, output.body_z_axis_ned);
 
-// ------------------------------------------------------------
-// 4. Target thrust
-// Original L1Quad:
-// target_thrust = -target_force · z_axis
-// ------------------------------------------------------------
 output.thrust_newton = -dot3(output.target_force_ned, output.body_z_axis_ned);
 
-// ------------------------------------------------------------
-// 5. Desired body axes and Rdes
-// ------------------------------------------------------------
 output.desired_body_z_axis_ned[0] = -output.target_force_ned[0];
 output.desired_body_z_axis_ned[1] = -output.target_force_ned[1];
 output.desired_body_z_axis_ned[2] = -output.target_force_ned[2];
@@ -203,23 +190,9 @@ set_matrix_column(Rd, 0, output.desired_body_x_axis_ned);
 set_matrix_column(Rd, 1, output.desired_body_y_axis_ned);
 set_matrix_column(Rd, 2, output.desired_body_z_axis_ned);
 
-// ------------------------------------------------------------
-// 6. Rotation error eR
-// Original L1Quad:
-// eRM = (Rdes^T * R - R^T * Rdes) / 2
-// eR = vee(eRM)
-// ------------------------------------------------------------
 compute_rotation_error(R, Rd, output.rotation_error);
 
-// ------------------------------------------------------------
-// 7. Basic angular velocity error ew
-// Original L1Quad:
-// ew = Omega - R^T * Rdes * Omegad
-//
-// Current temporary implementation:
-// Omegad is not migrated yet, so Omegad = 0.
-// Therefore ew = Omega.
-// ------------------------------------------------------------
+// Omegad is not migrated yet, so desired angular velocity is temporarily zero.
 output.desired_angular_velocity_body[0] = 0.f;
 output.desired_angular_velocity_body[1] = 0.f;
 output.desired_angular_velocity_body[2] = 0.f;
@@ -229,27 +202,40 @@ output.angular_velocity_error[i] =
 input.angular_velocity_body[i] - output.desired_angular_velocity_body[i];
 }
 
-// ------------------------------------------------------------
-// 8. Basic moment calculation
-// Original L1Quad starts with:
-// M.x = -KRx * eR.x - KOx * ew.x
-// M.y = -KRy * eR.y - KOy * ew.y
-// M.z = -KRz * eR.z - KOz * ew.z
-//
-// We do only this basic PD part now.
-// The inertia feedforward and gyroscopic terms are not migrated yet.
-// ------------------------------------------------------------
-output.moment_newton_meter[0] =
+// Basic attitude PD moment.
+output.pd_moment_newton_meter[0] =
 -KR_X * output.rotation_error[0]
 -KO_X * output.angular_velocity_error[0];
 
-output.moment_newton_meter[1] =
+output.pd_moment_newton_meter[1] =
 -KR_Y * output.rotation_error[1]
 -KO_Y * output.angular_velocity_error[1];
 
-output.moment_newton_meter[2] =
+output.pd_moment_newton_meter[2] =
 -KR_Z * output.rotation_error[2]
 -KO_Z * output.angular_velocity_error[2];
+
+// J * Omega for diagonal inertia.
+output.j_omega_body[0] = JXX_KGM2 * input.angular_velocity_body[0];
+output.j_omega_body[1] = JYY_KGM2 * input.angular_velocity_body[1];
+output.j_omega_body[2] = JZZ_KGM2 * input.angular_velocity_body[2];
+
+// Gyroscopic moment:
+// momentAdd = Omega cross (J * Omega)
+cross3(input.angular_velocity_body,
+       output.j_omega_body,
+       output.gyro_moment_newton_meter);
+
+// Current moment output:
+// M = M_PD + Omega x JOmega
+output.moment_newton_meter[0] =
+output.pd_moment_newton_meter[0] + output.gyro_moment_newton_meter[0];
+
+output.moment_newton_meter[1] =
+output.pd_moment_newton_meter[1] + output.gyro_moment_newton_meter[1];
+
+output.moment_newton_meter[2] =
+output.pd_moment_newton_meter[2] + output.gyro_moment_newton_meter[2];
 
 output.valid = input.state_valid_for_control && !input.failsafe;
 
