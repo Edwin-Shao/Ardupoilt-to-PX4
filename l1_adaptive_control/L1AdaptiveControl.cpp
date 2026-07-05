@@ -20,7 +20,8 @@ PX4_INFO("L1 adaptive control init");
 // Current stage:
 // - subscribe uORB
 // - convert uORB into internal state
-// - convert internal state into controller input
+// - generate placeholder trajectory
+// - convert trajectory + state into GeometricController input
 // - call empty GeometricController framework
 ScheduleOnInterval(100_ms);
 
@@ -40,6 +41,10 @@ perf_count(_loop_interval_perf);
 
 update_subscriptions();
 update_internal_state();
+
+update_trajectory_input();
+run_trajectory_generator();
+
 update_controller_input();
 run_geometric_controller();
 
@@ -121,6 +126,30 @@ _state.angular_velocity_valid &&
 !_state.failsafe;
 }
 
+void L1AdaptiveControl::update_trajectory_input()
+{
+_trajectory_input.timestamp_us = _state.timestamp_us;
+
+for (int i = 0; i < 3; i++) {
+_trajectory_input.current_position_ned[i] = _state.position_ned[i];
+}
+
+// Stage 4 placeholder:
+// We do not compute yaw from quaternion yet.
+// Later this should be extracted from quat_body_to_ned.
+_trajectory_input.current_yaw = 0.f;
+
+_trajectory_input.state_valid_for_control = _state_valid_for_control;
+_trajectory_input.armed = _state.armed;
+_trajectory_input.failsafe = _state.failsafe;
+_trajectory_input.nav_state = _state.nav_state;
+}
+
+void L1AdaptiveControl::run_trajectory_generator()
+{
+_trajectory_update_executed = _trajectory_generator.update(_trajectory_input, _trajectory_output);
+}
+
 void L1AdaptiveControl::update_controller_input()
 {
 _controller_input.timestamp_us = _state.timestamp_us;
@@ -129,28 +158,23 @@ for (int i = 0; i < 3; i++) {
 _controller_input.position_ned[i] = _state.position_ned[i];
 _controller_input.velocity_ned[i] = _state.velocity_ned[i];
 _controller_input.angular_velocity_body[i] = _state.angular_velocity_body[i];
+
+_controller_input.target_position_ned[i] = _trajectory_output.position_ned[i];
+_controller_input.target_velocity_ned[i] = _trajectory_output.velocity_ned[i];
+_controller_input.target_acceleration_ned[i] = _trajectory_output.acceleration_ned[i];
+_controller_input.target_jerk_ned[i] = _trajectory_output.jerk_ned[i];
+_controller_input.target_snap_ned[i] = _trajectory_output.snap_ned[i];
 }
 
 for (int i = 0; i < 4; i++) {
 _controller_input.quat_body_to_ned[i] = _state.quat_body_to_ned[i];
 }
 
-// Temporary target:
-// Before adding the trajectory generator, use the current position as the target position.
-// This prevents us from inventing a real flight command too early.
-for (int i = 0; i < 3; i++) {
-_controller_input.target_position_ned[i] = _state.position_ned[i];
-_controller_input.target_velocity_ned[i] = 0.f;
-_controller_input.target_acceleration_ned[i] = 0.f;
-_controller_input.target_jerk_ned[i] = 0.f;
-_controller_input.target_snap_ned[i] = 0.f;
-}
+_controller_input.target_yaw = _trajectory_output.yaw;
+_controller_input.target_yaw_rate = _trajectory_output.yaw_rate;
+_controller_input.target_yaw_accel = _trajectory_output.yaw_accel;
 
-_controller_input.target_yaw = 0.f;
-_controller_input.target_yaw_rate = 0.f;
-_controller_input.target_yaw_accel = 0.f;
-
-_controller_input.state_valid_for_control = _state_valid_for_control;
+_controller_input.state_valid_for_control = _state_valid_for_control && _trajectory_output.valid;
 _controller_input.armed = _state.armed;
 _controller_input.failsafe = _state.failsafe;
 _controller_input.nav_state = _state.nav_state;
@@ -163,7 +187,7 @@ _geometric_update_executed = _geometric_controller.update(_controller_input, _ge
 
 void L1AdaptiveControl::print_debug_info()
 {
-PX4_INFO("========== L1 adaptive controller framework ==========");
+PX4_INFO("========== L1 adaptive trajectory framework ==========");
 
 PX4_INFO("subscriptions: local_pos=%d attitude=%d angular_vel=%d status=%d",
  (int)_has_local_position,
@@ -196,21 +220,29 @@ PX4_INFO("state.velocity_ned [m/s]: vx=%.3f vy=%.3f vz=%.3f",
  (double)_state.velocity_ned[1],
  (double)_state.velocity_ned[2]);
 
-PX4_INFO("state.quat_body_to_ned: w=%.4f x=%.4f y=%.4f z=%.4f",
- (double)_state.quat_body_to_ned[0],
- (double)_state.quat_body_to_ned[1],
- (double)_state.quat_body_to_ned[2],
- (double)_state.quat_body_to_ned[3]);
+PX4_INFO("trajectory: update_executed=%d output_valid=%d",
+ (int)_trajectory_update_executed,
+ (int)_trajectory_output.valid);
 
-PX4_INFO("state.angular_velocity_body [rad/s]: p=%.4f q=%.4f r=%.4f",
- (double)_state.angular_velocity_body[0],
- (double)_state.angular_velocity_body[1],
- (double)_state.angular_velocity_body[2]);
+PX4_INFO("trajectory target_pos_ned [m]: x=%.3f y=%.3f z=%.3f",
+ (double)_trajectory_output.position_ned[0],
+ (double)_trajectory_output.position_ned[1],
+ (double)_trajectory_output.position_ned[2]);
 
-PX4_INFO("controller target_pos_ned [m]: x=%.3f y=%.3f z=%.3f",
- (double)_controller_input.target_position_ned[0],
- (double)_controller_input.target_position_ned[1],
- (double)_controller_input.target_position_ned[2]);
+PX4_INFO("trajectory target_vel_ned [m/s]: vx=%.3f vy=%.3f vz=%.3f",
+ (double)_trajectory_output.velocity_ned[0],
+ (double)_trajectory_output.velocity_ned[1],
+ (double)_trajectory_output.velocity_ned[2]);
+
+PX4_INFO("trajectory target_acc_ned [m/s^2]: ax=%.3f ay=%.3f az=%.3f",
+ (double)_trajectory_output.acceleration_ned[0],
+ (double)_trajectory_output.acceleration_ned[1],
+ (double)_trajectory_output.acceleration_ned[2]);
+
+PX4_INFO("trajectory yaw: yaw=%.3f yaw_rate=%.3f yaw_accel=%.3f",
+ (double)_trajectory_output.yaw,
+ (double)_trajectory_output.yaw_rate,
+ (double)_trajectory_output.yaw_accel);
 
 PX4_INFO("geometric placeholder: update_executed=%d output_valid=%d",
  (int)_geometric_update_executed,
@@ -256,8 +288,12 @@ PX4_INFO("has local_position=%d attitude=%d angular_velocity=%d vehicle_status=%
  (int)_has_angular_velocity,
  (int)_has_vehicle_status);
 
-PX4_INFO("state_valid_for_control=%d geometric_update_executed=%d geometric_output_valid=%d",
+PX4_INFO("state_valid_for_control=%d trajectory_update=%d trajectory_valid=%d",
  (int)_state_valid_for_control,
+ (int)_trajectory_update_executed,
+ (int)_trajectory_output.valid);
+
+PX4_INFO("geometric_update_executed=%d geometric_output_valid=%d",
  (int)_geometric_update_executed,
  (int)_geometric_output.valid);
 
@@ -289,7 +325,8 @@ Current stage:
 - Subscribe vehicle_angular_velocity
 - Subscribe vehicle_status
 - Convert uORB messages into internal controller state
-- Convert internal state into GeometricController input
+- Generate placeholder hold-position trajectory
+- Convert trajectory output into GeometricController input
 - Call empty GeometricController framework
 - Print debug state only
 - No control output is published

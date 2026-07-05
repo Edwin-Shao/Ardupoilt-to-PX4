@@ -7,6 +7,8 @@ L1AdaptiveControl.cpp
 L1AdaptiveControl.hpp
 GeometricController.cpp
 GeometricController.hpp
+TrajectoryGenerator.cpp
+TrajectoryGenerator.hpp
 DEPENDS
 px4_work_queue
 )

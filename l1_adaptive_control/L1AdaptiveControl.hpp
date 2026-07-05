@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GeometricController.hpp"
+#include "TrajectoryGenerator.hpp"
 
 #include <px4_platform_common/defines.h>
 #include <px4_platform_common/module.h>
@@ -61,8 +62,13 @@ void Run() override;
 
 void update_subscriptions();
 void update_internal_state();
+
+void update_trajectory_input();
+void run_trajectory_generator();
+
 void update_controller_input();
 void run_geometric_controller();
+
 void print_debug_info();
 
 uORB::Subscription _vehicle_local_position_sub{ORB_ID(vehicle_local_position)};
@@ -82,6 +88,11 @@ bool _has_vehicle_status{false};
 
 InternalState _state{};
 bool _state_valid_for_control{false};
+
+TrajectoryGenerator _trajectory_generator{};
+TrajectoryGenerator::Input _trajectory_input{};
+TrajectoryGenerator::Output _trajectory_output{};
+bool _trajectory_update_executed{false};
 
 GeometricController _geometric_controller{};
 GeometricController::Input _controller_input{};
