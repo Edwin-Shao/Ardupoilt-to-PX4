@@ -1,0 +1,10 @@
+px4_add_module(
+MODULE modules__l1_adaptive_control
+MAIN l1_adaptive_control
+COMPILE_FLAGS
+SRCS
+L1AdaptiveControl.cpp
+L1AdaptiveControl.hpp
+DEPENDS
+px4_work_queue
+)

@@ -1,0 +1,3 @@
+menuconfig MODULES_L1_ADAPTIVE_CONTROL
+	bool "l1_adaptive_control"
+	default n
