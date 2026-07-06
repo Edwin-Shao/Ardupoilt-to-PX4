@@ -1,8 +1,107 @@
 #include "L1AdaptiveControl.hpp"
 
+#include <math.h>
+#include <mathlib/mathlib.h>
+
+namespace
+{
+
+static constexpr float VEHICLE_MASS_KG = 3.0f;
+static constexpr float GRAVITY_MSS = 9.80665f;
+
+static constexpr float JXX_KGM2 = 0.023f;
+static constexpr float JYY_KGM2 = 0.023f;
+static constexpr float JZZ_KGM2 = 0.0459f;
+
+static constexpr float JINV_XX = 43.478f;
+static constexpr float JINV_YY = 43.478f;
+static constexpr float JINV_ZZ = 21.786f;
+
+static constexpr bool L1_ENABLE = true;
+static constexpr float L1_AS_V = -5.0f;
+static constexpr float L1_AS_OMEGA = -10.0f;
+static constexpr float L1_CUTOFF_Q1_THRUST = 10.0f;
+static constexpr float L1_CUTOFF_Q1_MOMENT = 10.0f;
+static constexpr float L1_CUTOFF_Q2_MOMENT = 2.0f;
+
+static constexpr float MAX_THRUST_N = VEHICLE_MASS_KG * GRAVITY_MSS * 2.0f;
+static constexpr float MAX_ROLL_PITCH_MOMENT_NM = 2.0f;
+static constexpr float MAX_YAW_MOMENT_NM = 1.0f;
+
+static constexpr float MAX_L1_THRUST_N = VEHICLE_MASS_KG * GRAVITY_MSS * 0.35f;
+static constexpr float MAX_L1_ROLL_PITCH_MOMENT_NM = 0.35f;
+static constexpr float MAX_L1_YAW_MOMENT_NM = 0.20f;
+
+float dot3(const float a[3], const float b[3])
+{
+	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+void cross3(const float a[3], const float b[3], float out[3])
+{
+	out[0] = a[1] * b[2] - a[2] * b[1];
+	out[1] = a[2] * b[0] - a[0] * b[2];
+	out[2] = a[0] * b[1] - a[1] * b[0];
+}
+
+void quat_to_rotation_matrix_body_to_ned(const float q[4], float R[3][3])
+{
+	const float w = q[0];
+	const float x = q[1];
+	const float y = q[2];
+	const float z = q[3];
+
+	R[0][0] = 1.0f - 2.0f * (y * y + z * z);
+	R[0][1] = 2.0f * (x * y - w * z);
+	R[0][2] = 2.0f * (x * z + w * y);
+
+	R[1][0] = 2.0f * (x * y + w * z);
+	R[1][1] = 1.0f - 2.0f * (x * x + z * z);
+	R[1][2] = 2.0f * (y * z - w * x);
+
+	R[2][0] = 2.0f * (x * z - w * y);
+	R[2][1] = 2.0f * (y * z + w * x);
+	R[2][2] = 1.0f - 2.0f * (x * x + y * y);
+}
+
+float yaw_from_quat_body_to_ned(const float q[4])
+{
+	float R[3][3]{};
+	quat_to_rotation_matrix_body_to_ned(q, R);
+	return atan2f(R[1][0], R[0][0]);
+}
+
+void get_matrix_column(const float R[3][3], int col, float out[3])
+{
+	out[0] = R[0][col];
+	out[1] = R[1][col];
+	out[2] = R[2][col];
+}
+
+void copy3(const float in[3], float out[3])
+{
+	out[0] = in[0];
+	out[1] = in[1];
+	out[2] = in[2];
+}
+
+float phi_inverse_mu(float prediction_error, float as_value, float dt)
+{
+	const float exp_as_dt = expf(as_value * dt);
+	const float denominator = exp_as_dt - 1.0f;
+
+	if (fabsf(denominator) < 1e-5f || fabsf(as_value) < 1e-5f) {
+		return 0.f;
+	}
+
+	return prediction_error / denominator * as_value * exp_as_dt;
+}
+
+}
+
 L1AdaptiveControl::L1AdaptiveControl() :
 ModuleParams(nullptr),
-ScheduledWorkItem(MODULE_NAME, px4::wq_configurations::test1)
+ScheduledWorkItem(MODULE_NAME, px4::wq_configurations::nav_and_controllers)
 {
 }
 
@@ -16,14 +115,9 @@ bool L1AdaptiveControl::init()
 {
 PX4_INFO("L1 adaptive control init");
 
-// 10 Hz debug loop.
-// Current stage:
-// - subscribe uORB
-// - convert uORB into internal state
-// - generate placeholder trajectory
-// - convert trajectory + state into GeometricController input
-// - call empty GeometricController framework
-ScheduleOnInterval(100_ms);
+// 250 Hz control loop. This matches the PX4 control allocation path better than
+// the earlier debug-only 10 Hz loop while keeping the module independent.
+ScheduleOnInterval(4_ms);
 
 return true;
 }
@@ -47,6 +141,8 @@ run_trajectory_generator();
 
 update_controller_input();
 run_geometric_controller();
+run_l1_adaptive_augmentation();
+publish_control_setpoints();
 
 const hrt_abstime now_us = hrt_absolute_time();
 
@@ -134,10 +230,7 @@ for (int i = 0; i < 3; i++) {
 _trajectory_input.current_position_ned[i] = _state.position_ned[i];
 }
 
-// Stage 4 placeholder:
-// We do not compute yaw from quaternion yet.
-// Later this should be extracted from quat_body_to_ned.
-_trajectory_input.current_yaw = 0.f;
+_trajectory_input.current_yaw = yaw_from_quat_body_to_ned(_state.quat_body_to_ned);
 
 _trajectory_input.state_valid_for_control = _state_valid_for_control;
 _trajectory_input.armed = _state.armed;
@@ -183,6 +276,248 @@ _controller_input.nav_state = _state.nav_state;
 void L1AdaptiveControl::run_geometric_controller()
 {
 _geometric_update_executed = _geometric_controller.update(_controller_input, _geometric_output);
+}
+
+void L1AdaptiveControl::reset_l1_adaptive_state()
+{
+	_l1_state = L1AdaptiveState{};
+
+	for (int i = 0; i < 4; i++) {
+		_l1_output_thrust_moment[i] = 0.f;
+	}
+}
+
+void L1AdaptiveControl::run_l1_adaptive_augmentation()
+{
+	_l1_update_executed = false;
+
+	for (int i = 0; i < 4; i++) {
+		_l1_output_thrust_moment[i] = 0.f;
+		_combined_thrust_moment[i] = 0.f;
+	}
+
+	if (!_geometric_output.valid || !_state_valid_for_control || !_state.armed || _state.failsafe) {
+		reset_l1_adaptive_state();
+		return;
+	}
+
+	float R[3][3]{};
+	quat_to_rotation_matrix_body_to_ned(_state.quat_body_to_ned, R);
+
+	const float baseline_thrust_moment[4] = {
+		_geometric_output.thrust_newton,
+		_geometric_output.moment_newton_meter[0],
+		_geometric_output.moment_newton_meter[1],
+		_geometric_output.moment_newton_meter[2]
+	};
+
+	if (!_l1_state.initialized) {
+		copy3(_state.velocity_ned, _l1_state.velocity_hat_prev);
+		copy3(_state.velocity_ned, _l1_state.velocity_prev);
+		copy3(_state.angular_velocity_body, _l1_state.angular_velocity_hat_prev);
+		copy3(_state.angular_velocity_body, _l1_state.angular_velocity_prev);
+
+		for (int row = 0; row < 3; row++) {
+			for (int col = 0; col < 3; col++) {
+				_l1_state.rotation_body_to_ned_prev[row][col] = R[row][col];
+			}
+		}
+
+		for (int i = 0; i < 4; i++) {
+			_l1_state.baseline_thrust_moment_prev[i] = baseline_thrust_moment[i];
+		}
+
+		_l1_state.last_update_us = _state.timestamp_us;
+		_l1_state.initialized = true;
+	}
+
+	const float dt = math::constrain((_state.timestamp_us - _l1_state.last_update_us) * 1e-6f, 0.001f, 0.02f);
+
+	float colx_prev[3]{};
+	float coly_prev[3]{};
+	float colz_prev[3]{};
+	get_matrix_column(_l1_state.rotation_body_to_ned_prev, 0, colx_prev);
+	get_matrix_column(_l1_state.rotation_body_to_ned_prev, 1, coly_prev);
+	get_matrix_column(_l1_state.rotation_body_to_ned_prev, 2, colz_prev);
+
+	float velocity_prediction_error_prev[3]{};
+	float angular_prediction_error_prev[3]{};
+
+	for (int i = 0; i < 3; i++) {
+		velocity_prediction_error_prev[i] = _l1_state.velocity_hat_prev[i] - _l1_state.velocity_prev[i];
+		angular_prediction_error_prev[i] = _l1_state.angular_velocity_hat_prev[i] - _l1_state.angular_velocity_prev[i];
+	}
+
+	const float previous_total_thrust =
+		_l1_state.baseline_thrust_moment_prev[0]
+		+ _l1_state.adaptive_thrust_moment_prev[0]
+		+ _l1_state.sigma_matched_prev[0];
+
+	float velocity_hat[3]{};
+
+	for (int i = 0; i < 3; i++) {
+		const float gravity_term = (i == 2) ? GRAVITY_MSS : 0.f;
+
+		velocity_hat[i] = _l1_state.velocity_hat_prev[i]
+				  + (gravity_term
+				     - colz_prev[i] * previous_total_thrust / VEHICLE_MASS_KG
+				     + colx_prev[i] * _l1_state.sigma_unmatched_prev[0] / VEHICLE_MASS_KG
+				     + coly_prev[i] * _l1_state.sigma_unmatched_prev[1] / VEHICLE_MASS_KG
+				     + velocity_prediction_error_prev[i] * L1_AS_V) * dt;
+	}
+
+	const float omega_prev[3] = {
+		_l1_state.angular_velocity_prev[0],
+		_l1_state.angular_velocity_prev[1],
+		_l1_state.angular_velocity_prev[2]
+	};
+
+	const float j_omega_prev[3] = {
+		JXX_KGM2 * omega_prev[0],
+		JYY_KGM2 * omega_prev[1],
+		JZZ_KGM2 * omega_prev[2]
+	};
+
+	float gyro_moment_prev[3]{};
+	cross3(omega_prev, j_omega_prev, gyro_moment_prev);
+
+	const float previous_total_moment[3] = {
+		_l1_state.baseline_thrust_moment_prev[1] + _l1_state.adaptive_thrust_moment_prev[1] + _l1_state.sigma_matched_prev[1],
+		_l1_state.baseline_thrust_moment_prev[2] + _l1_state.adaptive_thrust_moment_prev[2] + _l1_state.sigma_matched_prev[2],
+		_l1_state.baseline_thrust_moment_prev[3] + _l1_state.adaptive_thrust_moment_prev[3] + _l1_state.sigma_matched_prev[3]
+	};
+
+	const float inertia_inverse[3] = {JINV_XX, JINV_YY, JINV_ZZ};
+
+	float angular_velocity_hat[3]{};
+
+	for (int i = 0; i < 3; i++) {
+		angular_velocity_hat[i] = _l1_state.angular_velocity_hat_prev[i]
+					  + (-inertia_inverse[i] * gyro_moment_prev[i]
+					     + inertia_inverse[i] * previous_total_moment[i]
+					     + angular_prediction_error_prev[i] * L1_AS_OMEGA) * dt;
+	}
+
+	float velocity_prediction_error[3]{};
+	float angular_prediction_error[3]{};
+	float phi_inv_mu_v[3]{};
+	float phi_inv_mu_omega[3]{};
+
+	for (int i = 0; i < 3; i++) {
+		velocity_prediction_error[i] = velocity_hat[i] - _state.velocity_ned[i];
+		angular_prediction_error[i] = angular_velocity_hat[i] - _state.angular_velocity_body[i];
+		phi_inv_mu_v[i] = phi_inverse_mu(velocity_prediction_error[i], L1_AS_V, dt);
+		phi_inv_mu_omega[i] = phi_inverse_mu(angular_prediction_error[i], L1_AS_OMEGA, dt);
+	}
+
+	float colx[3]{};
+	float coly[3]{};
+	float colz[3]{};
+	get_matrix_column(R, 0, colx);
+	get_matrix_column(R, 1, coly);
+	get_matrix_column(R, 2, colz);
+
+	float sigma_matched[4]{};
+	float sigma_unmatched[2]{};
+
+	sigma_matched[0] = dot3(colz, phi_inv_mu_v) * VEHICLE_MASS_KG;
+	sigma_matched[1] = -JXX_KGM2 * phi_inv_mu_omega[0];
+	sigma_matched[2] = -JYY_KGM2 * phi_inv_mu_omega[1];
+	sigma_matched[3] = -JZZ_KGM2 * phi_inv_mu_omega[2];
+
+	sigma_unmatched[0] = -dot3(colx, phi_inv_mu_v) * VEHICLE_MASS_KG;
+	sigma_unmatched[1] = -dot3(coly, phi_inv_mu_v) * VEHICLE_MASS_KG;
+
+	const float lpf1_thrust_keep = expf(-L1_CUTOFF_Q1_THRUST * dt);
+	const float lpf1_moment_keep = expf(-L1_CUTOFF_Q1_MOMENT * dt);
+	const float lpf2_moment_keep = expf(-L1_CUTOFF_Q2_MOMENT * dt);
+
+	float lpf1[4]{};
+	float lpf2[4]{};
+
+	lpf1[0] = lpf1_thrust_keep * _l1_state.lpf1_prev[0] + (1.f - lpf1_thrust_keep) * sigma_matched[0];
+
+	for (int i = 1; i < 4; i++) {
+		lpf1[i] = lpf1_moment_keep * _l1_state.lpf1_prev[i] + (1.f - lpf1_moment_keep) * sigma_matched[i];
+		lpf2[i] = lpf2_moment_keep * _l1_state.lpf2_prev[i] + (1.f - lpf2_moment_keep) * lpf1[i];
+	}
+
+	lpf2[0] = lpf1[0];
+
+	_l1_output_thrust_moment[0] = L1_ENABLE ? math::constrain(-lpf2[0], -MAX_L1_THRUST_N, MAX_L1_THRUST_N) : 0.f;
+	_l1_output_thrust_moment[1] = L1_ENABLE ? math::constrain(-lpf2[1], -MAX_L1_ROLL_PITCH_MOMENT_NM, MAX_L1_ROLL_PITCH_MOMENT_NM) : 0.f;
+	_l1_output_thrust_moment[2] = L1_ENABLE ? math::constrain(-lpf2[2], -MAX_L1_ROLL_PITCH_MOMENT_NM, MAX_L1_ROLL_PITCH_MOMENT_NM) : 0.f;
+	_l1_output_thrust_moment[3] = L1_ENABLE ? math::constrain(-lpf2[3], -MAX_L1_YAW_MOMENT_NM, MAX_L1_YAW_MOMENT_NM) : 0.f;
+
+	for (int i = 0; i < 4; i++) {
+		_l1_state.baseline_thrust_moment_prev[i] = baseline_thrust_moment[i];
+		_l1_state.adaptive_thrust_moment_prev[i] = _l1_output_thrust_moment[i];
+		_l1_state.sigma_matched_prev[i] = sigma_matched[i];
+		_l1_state.lpf1_prev[i] = lpf1[i];
+		_l1_state.lpf2_prev[i] = lpf2[i];
+		_combined_thrust_moment[i] = baseline_thrust_moment[i] + _l1_output_thrust_moment[i];
+	}
+
+	sigma_unmatched[0] = math::constrain(sigma_unmatched[0], -MAX_L1_THRUST_N, MAX_L1_THRUST_N);
+	sigma_unmatched[1] = math::constrain(sigma_unmatched[1], -MAX_L1_THRUST_N, MAX_L1_THRUST_N);
+
+	_l1_state.sigma_unmatched_prev[0] = sigma_unmatched[0];
+	_l1_state.sigma_unmatched_prev[1] = sigma_unmatched[1];
+
+	copy3(velocity_hat, _l1_state.velocity_hat_prev);
+	copy3(_state.velocity_ned, _l1_state.velocity_prev);
+	copy3(angular_velocity_hat, _l1_state.angular_velocity_hat_prev);
+	copy3(_state.angular_velocity_body, _l1_state.angular_velocity_prev);
+
+	for (int row = 0; row < 3; row++) {
+		for (int col = 0; col < 3; col++) {
+			_l1_state.rotation_body_to_ned_prev[row][col] = R[row][col];
+		}
+	}
+
+	_l1_state.last_update_us = _state.timestamp_us;
+	_l1_update_executed = true;
+}
+
+void L1AdaptiveControl::publish_control_setpoints()
+{
+	_control_setpoint_published = false;
+
+	if (!_geometric_output.valid || !_state_valid_for_control || !_state.armed || _state.failsafe) {
+		for (int i = 0; i < 3; i++) {
+			_published_thrust_body[i] = 0.f;
+			_published_torque_body[i] = 0.f;
+		}
+
+		return;
+	}
+
+	const float thrust_n = math::constrain(_combined_thrust_moment[0], 0.f, MAX_THRUST_N);
+
+	vehicle_thrust_setpoint_s thrust_sp{};
+	thrust_sp.timestamp = hrt_absolute_time();
+	thrust_sp.timestamp_sample = _vehicle_angular_velocity.timestamp_sample;
+	thrust_sp.xyz[0] = 0.f;
+	thrust_sp.xyz[1] = 0.f;
+	thrust_sp.xyz[2] = -math::constrain(thrust_n / MAX_THRUST_N, 0.f, 1.f);
+
+	vehicle_torque_setpoint_s torque_sp{};
+	torque_sp.timestamp = thrust_sp.timestamp;
+	torque_sp.timestamp_sample = thrust_sp.timestamp_sample;
+	torque_sp.xyz[0] = math::constrain(_combined_thrust_moment[1] / MAX_ROLL_PITCH_MOMENT_NM, -1.f, 1.f);
+	torque_sp.xyz[1] = math::constrain(_combined_thrust_moment[2] / MAX_ROLL_PITCH_MOMENT_NM, -1.f, 1.f);
+	torque_sp.xyz[2] = math::constrain(_combined_thrust_moment[3] / MAX_YAW_MOMENT_NM, -1.f, 1.f);
+
+	_vehicle_thrust_setpoint_pub.publish(thrust_sp);
+	_vehicle_torque_setpoint_pub.publish(torque_sp);
+
+	for (int i = 0; i < 3; i++) {
+		_published_thrust_body[i] = thrust_sp.xyz[i];
+		_published_torque_body[i] = torque_sp.xyz[i];
+	}
+
+	_control_setpoint_published = true;
+	_control_setpoint_publish_count++;
 }
 
 void L1AdaptiveControl::print_debug_info()
@@ -246,7 +581,7 @@ PX4_INFO("trajectory yaw: yaw=%.3f yaw_rate=%.3f yaw_accel=%.3f",
  (double)_trajectory_output.yaw_rate,
  (double)_trajectory_output.yaw_accel);
 
-PX4_INFO("geometric placeholder: update_executed=%d output_valid=%d",
+PX4_INFO("geometric controller: update_executed=%d output_valid=%d",
  (int)_geometric_update_executed,
  (int)_geometric_output.valid);
 
@@ -364,11 +699,35 @@ PX4_INFO("geometric errors: ep=[%.3f %.3f %.3f] ev=[%.3f %.3f %.3f]",
 		 (double)_geometric_output.j_omega_body[1],
 		 (double)_geometric_output.j_omega_body[2]);
 
-	PX4_INFO("geometric basic output: F=%.3f N M=[%.3f %.3f %.3f] Nm",
+PX4_INFO("geometric basic output: F=%.3f N M=[%.3f %.3f %.3f] Nm",
 		 (double)_geometric_output.thrust_newton,
 		 (double)_geometric_output.moment_newton_meter[0],
 		 (double)_geometric_output.moment_newton_meter[1],
 		 (double)_geometric_output.moment_newton_meter[2]);
+
+	PX4_INFO("L1 adaptive: enabled=%d update=%d uad=[%.3f %.4f %.4f %.4f]",
+		 (int)L1_ENABLE,
+		 (int)_l1_update_executed,
+		 (double)_l1_output_thrust_moment[0],
+		 (double)_l1_output_thrust_moment[1],
+		 (double)_l1_output_thrust_moment[2],
+		 (double)_l1_output_thrust_moment[3]);
+
+	PX4_INFO("combined output: F=%.3f N M=[%.3f %.3f %.3f] Nm",
+		 (double)_combined_thrust_moment[0],
+		 (double)_combined_thrust_moment[1],
+		 (double)_combined_thrust_moment[2],
+		 (double)_combined_thrust_moment[3]);
+
+	PX4_INFO("published setpoint: active=%d count=%u thrust_body=[%.3f %.3f %.3f] torque=[%.3f %.3f %.3f]",
+		 (int)_control_setpoint_published,
+		 (unsigned)_control_setpoint_publish_count,
+		 (double)_published_thrust_body[0],
+		 (double)_published_thrust_body[1],
+		 (double)_published_thrust_body[2],
+		 (double)_published_torque_body[0],
+		 (double)_published_torque_body[1],
+		 (double)_published_torque_body[2]);
 }
 
 int L1AdaptiveControl::task_spawn(int argc, char *argv[])
@@ -413,6 +772,11 @@ PX4_INFO("geometric_update_executed=%d geometric_output_valid=%d",
  (int)_geometric_update_executed,
  (int)_geometric_output.valid);
 
+PX4_INFO("l1_update_executed=%d publish_active=%d publish_count=%u",
+ (int)_l1_update_executed,
+ (int)_control_setpoint_published,
+ (unsigned)_control_setpoint_publish_count);
+
 perf_print_counter(_loop_perf);
 perf_print_counter(_loop_interval_perf);
 
@@ -441,11 +805,11 @@ Current stage:
 - Subscribe vehicle_angular_velocity
 - Subscribe vehicle_status
 - Convert uORB messages into internal controller state
-- Generate placeholder hold-position trajectory
+- Generate takeoff-and-hold trajectory
 - Convert trajectory output into GeometricController input
-- Call empty GeometricController framework
-- Print debug state only
-- No control output is published
+- Run geometric controller
+- Run L1 adaptive augmentation
+- Publish vehicle_thrust_setpoint and vehicle_torque_setpoint for PX4 control_allocator
 )DESCR_STR");
 
 PRINT_MODULE_USAGE_NAME("l1_adaptive_control", "controller");

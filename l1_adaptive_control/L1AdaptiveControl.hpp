@@ -12,11 +12,14 @@
 #include <drivers/drv_hrt.h>
 #include <lib/perf/perf_counter.h>
 
+#include <uORB/Publication.hpp>
 #include <uORB/Subscription.hpp>
 #include <uORB/topics/vehicle_local_position.h>
 #include <uORB/topics/vehicle_attitude.h>
 #include <uORB/topics/vehicle_angular_velocity.h>
 #include <uORB/topics/vehicle_status.h>
+#include <uORB/topics/vehicle_thrust_setpoint.h>
+#include <uORB/topics/vehicle_torque_setpoint.h>
 
 using namespace time_literals;
 
@@ -58,6 +61,24 @@ uint8_t arming_state{0};
 uint8_t nav_state{0};
 };
 
+struct L1AdaptiveState {
+bool initialized{false};
+hrt_abstime last_update_us{0};
+
+float velocity_hat_prev[3]{0.f, 0.f, 0.f};
+float angular_velocity_hat_prev[3]{0.f, 0.f, 0.f};
+float velocity_prev[3]{0.f, 0.f, 0.f};
+float angular_velocity_prev[3]{0.f, 0.f, 0.f};
+float rotation_body_to_ned_prev[3][3]{{1.f, 0.f, 0.f}, {0.f, 1.f, 0.f}, {0.f, 0.f, 1.f}};
+
+float baseline_thrust_moment_prev[4]{0.f, 0.f, 0.f, 0.f};
+float adaptive_thrust_moment_prev[4]{0.f, 0.f, 0.f, 0.f};
+float sigma_matched_prev[4]{0.f, 0.f, 0.f, 0.f};
+float sigma_unmatched_prev[2]{0.f, 0.f};
+float lpf1_prev[4]{0.f, 0.f, 0.f, 0.f};
+float lpf2_prev[4]{0.f, 0.f, 0.f, 0.f};
+};
+
 void Run() override;
 
 void update_subscriptions();
@@ -69,12 +90,19 @@ void run_trajectory_generator();
 void update_controller_input();
 void run_geometric_controller();
 
+void reset_l1_adaptive_state();
+void run_l1_adaptive_augmentation();
+void publish_control_setpoints();
+
 void print_debug_info();
 
 uORB::Subscription _vehicle_local_position_sub{ORB_ID(vehicle_local_position)};
 uORB::Subscription _vehicle_attitude_sub{ORB_ID(vehicle_attitude)};
 uORB::Subscription _vehicle_angular_velocity_sub{ORB_ID(vehicle_angular_velocity)};
 uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
+
+uORB::Publication<vehicle_thrust_setpoint_s> _vehicle_thrust_setpoint_pub{ORB_ID(vehicle_thrust_setpoint)};
+uORB::Publication<vehicle_torque_setpoint_s> _vehicle_torque_setpoint_pub{ORB_ID(vehicle_torque_setpoint)};
 
 vehicle_local_position_s _vehicle_local_position{};
 vehicle_attitude_s _vehicle_attitude{};
@@ -98,6 +126,16 @@ GeometricController _geometric_controller{};
 GeometricController::Input _controller_input{};
 GeometricController::Output _geometric_output{};
 bool _geometric_update_executed{false};
+
+L1AdaptiveState _l1_state{};
+float _l1_output_thrust_moment[4]{0.f, 0.f, 0.f, 0.f};
+float _combined_thrust_moment[4]{0.f, 0.f, 0.f, 0.f};
+bool _l1_update_executed{false};
+
+float _published_thrust_body[3]{0.f, 0.f, 0.f};
+float _published_torque_body[3]{0.f, 0.f, 0.f};
+bool _control_setpoint_published{false};
+uint32_t _control_setpoint_publish_count{0};
 
 perf_counter_t _loop_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": cycle")};
 perf_counter_t _loop_interval_perf{perf_alloc(PC_INTERVAL, MODULE_NAME": interval")};

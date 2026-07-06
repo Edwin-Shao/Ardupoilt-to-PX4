@@ -11,9 +11,12 @@ output.timestamp_us = input.timestamp_us;
 set_zero_derivatives(output);
 
 // Safety gate:
-// If the PX4 state is not valid for control, only mirror current position for debug.
+// If the PX4 state is not valid for control or the vehicle is disarmed, only
+// mirror current position for debug and reset the trajectory start point.
 // Do not generate a valid trajectory.
-if (!input.state_valid_for_control || input.failsafe) {
+if (!input.state_valid_for_control || !input.armed || input.failsafe) {
+reset();
+
 output.position_ned[0] = input.current_position_ned[0];
 output.position_ned[1] = input.current_position_ned[1];
 output.position_ned[2] = input.current_position_ned[2];
