@@ -23,6 +23,10 @@ bool state_valid_for_control{false};
 bool armed{false};
 bool failsafe{false};
 uint8_t nav_state{0};
+
+float manual_height_stick{0.f};
+bool manual_height_control_enabled{false};
+bool manual_height_control_valid{false};
 };
 
 struct Output {
@@ -56,6 +60,8 @@ const Output &last_output() const { return _last_output; }
 
 private:
 void set_zero_derivatives(Output &output);
+void set_hold_position(Output &output, const float position_ned[3]);
+void update_manual_hold_target(const Input &input, Output &output);
 
 bool _initialized{false};
 
@@ -63,11 +69,18 @@ hrt_abstime _start_time_us{0};
 
 float _start_position_ned[3]{0.f, 0.f, 0.f};
 float _takeoff_target_position_ned[3]{0.f, 0.f, -1.f};
+float _manual_hold_position_ned[3]{0.f, 0.f, 0.f};
 
 float _start_yaw{0.f};
+bool _manual_hold_initialized{false};
+hrt_abstime _last_update_us{0};
 
 static constexpr float TAKEOFF_HEIGHT_M = 1.0f;
 static constexpr float TAKEOFF_DURATION_S = 2.0f;
+static constexpr float MANUAL_HEIGHT_DEADZONE = 0.10f;
+static constexpr float MANUAL_MAX_CLIMB_RATE_M_S = 0.3f;
+static constexpr float MANUAL_MIN_HEIGHT_M = 0.5f;
+static constexpr float MANUAL_MAX_HEIGHT_M = 2.0f;
 
 Input _last_input{};
 Output _last_output{};

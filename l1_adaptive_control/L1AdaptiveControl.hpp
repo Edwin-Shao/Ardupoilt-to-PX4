@@ -17,6 +17,7 @@
 #include <uORB/topics/vehicle_local_position.h>
 #include <uORB/topics/vehicle_attitude.h>
 #include <uORB/topics/vehicle_angular_velocity.h>
+#include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/vehicle_status.h>
 #include <uORB/topics/vehicle_thrust_setpoint.h>
 #include <uORB/topics/vehicle_torque_setpoint.h>
@@ -39,6 +40,9 @@ static int print_usage(const char *reason = nullptr);
 bool init();
 
 int print_status() override;
+
+void set_rc_height_control_enabled(bool enabled);
+bool rc_height_control_enabled() const { return _rc_height_control_enabled.load(); }
 
 private:
 struct InternalState {
@@ -86,6 +90,7 @@ void update_internal_state();
 
 void update_trajectory_input();
 void run_trajectory_generator();
+void update_manual_height_control_input();
 
 void update_controller_input();
 void run_geometric_controller();
@@ -99,6 +104,7 @@ void print_debug_info();
 uORB::Subscription _vehicle_local_position_sub{ORB_ID(vehicle_local_position)};
 uORB::Subscription _vehicle_attitude_sub{ORB_ID(vehicle_attitude)};
 uORB::Subscription _vehicle_angular_velocity_sub{ORB_ID(vehicle_angular_velocity)};
+uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};
 uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
 
 uORB::Publication<vehicle_thrust_setpoint_s> _vehicle_thrust_setpoint_pub{ORB_ID(vehicle_thrust_setpoint)};
@@ -107,12 +113,18 @@ uORB::Publication<vehicle_torque_setpoint_s> _vehicle_torque_setpoint_pub{ORB_ID
 vehicle_local_position_s _vehicle_local_position{};
 vehicle_attitude_s _vehicle_attitude{};
 vehicle_angular_velocity_s _vehicle_angular_velocity{};
+manual_control_setpoint_s _manual_control_setpoint{};
 vehicle_status_s _vehicle_status{};
 
 bool _has_local_position{false};
 bool _has_attitude{false};
 bool _has_angular_velocity{false};
+bool _has_manual_control_setpoint{false};
 bool _has_vehicle_status{false};
+
+px4::atomic_bool _rc_height_control_enabled{false};
+bool _manual_height_control_valid{false};
+float _manual_height_stick{0.f};
 
 InternalState _state{};
 bool _state_valid_for_control{false};

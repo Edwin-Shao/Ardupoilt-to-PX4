@@ -1,5 +1,6 @@
 #include "TrajectoryGenerator.hpp"
 
+#include <math.h>
 #include <mathlib/mathlib.h>
 
 bool TrajectoryGenerator::update(const Input &input, Output &output)
@@ -33,6 +34,7 @@ return true;
 // Initialize trajectory start point on the first valid state.
 if (!_initialized) {
 _start_time_us = input.timestamp_us;
+_last_update_us = input.timestamp_us;
 
 _start_position_ned[0] = input.current_position_ned[0];
 _start_position_ned[1] = input.current_position_ned[1];
@@ -59,6 +61,7 @@ output.yaw_accel = 0.f;
 
 if (elapsed_s < TAKEOFF_DURATION_S) {
 output.mode = Mode::Takeoff;
+_manual_hold_initialized = false;
 
 const float s = math::constrain(elapsed_s / TAKEOFF_DURATION_S, 0.f, 1.f);
 
@@ -85,13 +88,16 @@ output.snap_ned[i] = 0.f;
 } else {
 output.mode = Mode::Hold;
 
-output.position_ned[0] = _takeoff_target_position_ned[0];
-output.position_ned[1] = _takeoff_target_position_ned[1];
-output.position_ned[2] = _takeoff_target_position_ned[2];
+if (input.manual_height_control_enabled) {
+update_manual_hold_target(input, output);
 
-set_zero_derivatives(output);
+} else {
+_manual_hold_initialized = false;
+set_hold_position(output, _takeoff_target_position_ned);
+}
 }
 
+_last_update_us = input.timestamp_us;
 output.valid = true;
 
 _last_output = output;
@@ -103,6 +109,8 @@ void TrajectoryGenerator::reset()
 {
 _initialized = false;
 _start_time_us = 0;
+_last_update_us = 0;
+_manual_hold_initialized = false;
 }
 
 void TrajectoryGenerator::set_zero_derivatives(Output &output)
@@ -116,4 +124,45 @@ output.snap_ned[i] = 0.f;
 
 output.yaw_rate = 0.f;
 output.yaw_accel = 0.f;
+}
+
+void TrajectoryGenerator::set_hold_position(Output &output, const float position_ned[3])
+{
+output.position_ned[0] = position_ned[0];
+output.position_ned[1] = position_ned[1];
+output.position_ned[2] = position_ned[2];
+
+set_zero_derivatives(output);
+}
+
+void TrajectoryGenerator::update_manual_hold_target(const Input &input, Output &output)
+{
+if (!_manual_hold_initialized) {
+_manual_hold_position_ned[0] = _takeoff_target_position_ned[0];
+_manual_hold_position_ned[1] = _takeoff_target_position_ned[1];
+_manual_hold_position_ned[2] = _takeoff_target_position_ned[2];
+_manual_hold_initialized = true;
+_last_update_us = input.timestamp_us;
+}
+
+const float dt = math::constrain((input.timestamp_us - _last_update_us) * 1e-6f, 0.f, 0.1f);
+float stick = input.manual_height_control_valid ? math::constrain(input.manual_height_stick, -1.f, 1.f) : 0.f;
+
+if (fabsf(stick) < MANUAL_HEIGHT_DEADZONE) {
+stick = 0.f;
+}
+
+const float target_vz_ned = -stick * MANUAL_MAX_CLIMB_RATE_M_S;
+_manual_hold_position_ned[2] += target_vz_ned * dt;
+
+const float min_z_ned = _start_position_ned[2] - MANUAL_MAX_HEIGHT_M;
+const float max_z_ned = _start_position_ned[2] - MANUAL_MIN_HEIGHT_M;
+_manual_hold_position_ned[2] = math::constrain(_manual_hold_position_ned[2], min_z_ned, max_z_ned);
+
+output.position_ned[0] = _manual_hold_position_ned[0];
+output.position_ned[1] = _manual_hold_position_ned[1];
+output.position_ned[2] = _manual_hold_position_ned[2];
+
+set_zero_derivatives(output);
+output.velocity_ned[2] = target_vz_ned;
 }

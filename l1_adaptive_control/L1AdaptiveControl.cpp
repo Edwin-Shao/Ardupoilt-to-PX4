@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <mathlib/mathlib.h>
+#include <string.h>
 
 namespace
 {
@@ -31,6 +32,7 @@ static constexpr float MAX_YAW_MOMENT_NM = 1.0f;
 static constexpr float MAX_L1_THRUST_N = VEHICLE_MASS_KG * GRAVITY_MSS * 0.35f;
 static constexpr float MAX_L1_ROLL_PITCH_MOMENT_NM = 0.35f;
 static constexpr float MAX_L1_YAW_MOMENT_NM = 0.20f;
+static constexpr hrt_abstime MANUAL_CONTROL_TIMEOUT_US = 500000;
 
 float dot3(const float a[3], const float b[3])
 {
@@ -168,6 +170,10 @@ if (_vehicle_angular_velocity_sub.update(&_vehicle_angular_velocity)) {
 _has_angular_velocity = true;
 }
 
+if (_manual_control_setpoint_sub.update(&_manual_control_setpoint)) {
+_has_manual_control_setpoint = true;
+}
+
 if (_vehicle_status_sub.update(&_vehicle_status)) {
 _has_vehicle_status = true;
 }
@@ -236,11 +242,41 @@ _trajectory_input.state_valid_for_control = _state_valid_for_control;
 _trajectory_input.armed = _state.armed;
 _trajectory_input.failsafe = _state.failsafe;
 _trajectory_input.nav_state = _state.nav_state;
+
+update_manual_height_control_input();
+_trajectory_input.manual_height_control_enabled = _rc_height_control_enabled.load();
+_trajectory_input.manual_height_control_valid = _manual_height_control_valid;
+_trajectory_input.manual_height_stick = _manual_height_stick;
 }
 
 void L1AdaptiveControl::run_trajectory_generator()
 {
 _trajectory_update_executed = _trajectory_generator.update(_trajectory_input, _trajectory_output);
+}
+
+void L1AdaptiveControl::update_manual_height_control_input()
+{
+_manual_height_control_valid = false;
+_manual_height_stick = 0.f;
+
+if (!_rc_height_control_enabled.load() || !_has_manual_control_setpoint || !_manual_control_setpoint.valid) {
+return;
+}
+
+if (_manual_control_setpoint.timestamp == 0 || _manual_control_setpoint.timestamp > _state.timestamp_us) {
+return;
+}
+
+if (_state.timestamp_us - _manual_control_setpoint.timestamp > MANUAL_CONTROL_TIMEOUT_US) {
+return;
+}
+
+if (!PX4_ISFINITE(_manual_control_setpoint.throttle)) {
+return;
+}
+
+_manual_height_stick = math::constrain(_manual_control_setpoint.throttle, -1.f, 1.f);
+_manual_height_control_valid = true;
 }
 
 void L1AdaptiveControl::update_controller_input()
@@ -530,6 +566,11 @@ PX4_INFO("subscriptions: local_pos=%d attitude=%d angular_vel=%d status=%d",
  (int)_has_angular_velocity,
  (int)_has_vehicle_status);
 
+PX4_INFO("rc height control: enabled=%d manual_valid=%d throttle=%.3f",
+ (int)_rc_height_control_enabled.load(),
+ (int)_manual_height_control_valid,
+ (double)_manual_height_stick);
+
 PX4_INFO("state flags: pos_valid=%d vel_valid=%d",
  (int)_state.position_valid,
  (int)_state.velocity_valid);
@@ -763,10 +804,19 @@ PX4_INFO("has local_position=%d attitude=%d angular_velocity=%d vehicle_status=%
  (int)_has_angular_velocity,
  (int)_has_vehicle_status);
 
+PX4_INFO("rc_height_control_enabled=%d manual_control_valid=%d manual_throttle=%.3f",
+ (int)_rc_height_control_enabled.load(),
+ (int)_manual_height_control_valid,
+ (double)_manual_height_stick);
+
 PX4_INFO("state_valid_for_control=%d trajectory_update=%d trajectory_valid=%d",
  (int)_state_valid_for_control,
  (int)_trajectory_update_executed,
  (int)_trajectory_output.valid);
+
+PX4_INFO("trajectory_mode=%u target_position_ned_z=%.3f",
+ (unsigned)_trajectory_output.mode,
+ (double)_trajectory_output.position_ned[2]);
 
 PX4_INFO("geometric_update_executed=%d geometric_output_valid=%d",
  (int)_geometric_update_executed,
@@ -783,8 +833,53 @@ perf_print_counter(_loop_interval_perf);
 return 0;
 }
 
+void L1AdaptiveControl::set_rc_height_control_enabled(bool enabled)
+{
+_rc_height_control_enabled.store(enabled);
+_manual_height_control_valid = false;
+_manual_height_stick = 0.f;
+}
+
 int L1AdaptiveControl::custom_command(int argc, char *argv[])
 {
+if (argc >= 1 && !strcmp(argv[0], "rc_control")) {
+if (!is_running()) {
+PX4_ERR("module not running");
+return -1;
+}
+
+L1AdaptiveControl *instance = get_instance();
+
+if (instance == nullptr) {
+PX4_ERR("module instance unavailable");
+return -1;
+}
+
+if (argc < 2 || !strcmp(argv[1], "status")) {
+PX4_INFO("RC height control %s", instance->rc_height_control_enabled() ? "enabled" : "disabled");
+PX4_INFO("manual_control_valid=%d manual_throttle=%.3f trajectory_mode=%u target_position_ned_z=%.3f",
+ (int)instance->_manual_height_control_valid,
+ (double)instance->_manual_height_stick,
+ (unsigned)instance->_trajectory_output.mode,
+ (double)instance->_trajectory_output.position_ned[2]);
+return 0;
+}
+
+if (!strcmp(argv[1], "enable") || !strcmp(argv[1], "1") || !strcmp(argv[1], "true")) {
+instance->set_rc_height_control_enabled(true);
+PX4_INFO("RC height control enabled");
+return 0;
+}
+
+if (!strcmp(argv[1], "disable") || !strcmp(argv[1], "0") || !strcmp(argv[1], "false")) {
+instance->set_rc_height_control_enabled(false);
+PX4_INFO("RC height control disabled");
+return 0;
+}
+
+return print_usage("unknown rc_control argument");
+}
+
 return print_usage("unknown command");
 }
 
@@ -803,6 +898,7 @@ Current stage:
 - Subscribe vehicle_local_position
 - Subscribe vehicle_attitude
 - Subscribe vehicle_angular_velocity
+- Subscribe manual_control_setpoint
 - Subscribe vehicle_status
 - Convert uORB messages into internal controller state
 - Generate takeoff-and-hold trajectory
@@ -815,6 +911,7 @@ Current stage:
 PRINT_MODULE_USAGE_NAME("l1_adaptive_control", "controller");
 PRINT_MODULE_USAGE_COMMAND("start");
 PRINT_MODULE_USAGE_COMMAND("status");
+PRINT_MODULE_USAGE_COMMAND_DESCR("rc_control", "enable/disable/status optional RC throttle height control");
 PRINT_MODULE_USAGE_COMMAND("stop");
 PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
