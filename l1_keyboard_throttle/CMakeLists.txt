@@ -1,0 +1,9 @@
+px4_add_module(
+MODULE modules__l1_keyboard_throttle
+MAIN l1_keyboard_throttle
+COMPILE_FLAGS
+SRCS
+L1KeyboardThrottle.cpp
+DEPENDS
+modules__l1_adaptive_control
+)

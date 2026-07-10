@@ -31,6 +31,8 @@ The current module includes:
 - geometric position and attitude control;
 - L1 adaptive augmentation;
 - PX4 `vehicle_thrust_setpoint` and `vehicle_torque_setpoint` publication;
+- optional RC throttle height takeover for the hold trajectory;
+- a keyboard throttle publisher for SITL testing of `rc_control`;
 - safety gates for invalid state, disarmed state, and failsafe;
 - SIH validation using `sihsim_quadx`.
 
@@ -46,6 +48,10 @@ l1_adaptive_control/
   GeometricController.hpp
   TrajectoryGenerator.cpp
   TrajectoryGenerator.hpp
+l1_keyboard_throttle/
+  CMakeLists.txt
+  Kconfig
+  L1KeyboardThrottle.cpp
 ```
 
 This repository is not a full PX4 fork. It contains the custom module that should be copied into a PX4 v1.17.0 checkout.
@@ -84,6 +90,8 @@ git clone https://github.com/ssybh2/Ardupoilt-to-PX4.git
 cd ~/px4_ws/PX4-Autopilot-v1.17.0
 mkdir -p src/modules/l1_adaptive_control
 cp -r ../Ardupoilt-to-PX4/l1_adaptive_control/* src/modules/l1_adaptive_control/
+mkdir -p src/modules/l1_keyboard_throttle
+cp -r ../Ardupoilt-to-PX4/l1_keyboard_throttle/* src/modules/l1_keyboard_throttle/
 ```
 
 ### 4. Enable The Module In The SITL Board Config
@@ -98,6 +106,7 @@ Add:
 
 ```text
 CONFIG_MODULES_L1_ADAPTIVE_CONTROL=y
+CONFIG_MODULES_L1_KEYBOARD_THROTTLE=y
 ```
 
 If your PX4 tree does not automatically expose the module in Kconfig, run:
@@ -163,6 +172,26 @@ l1_update_executed=1
 publish_active=1
 publish_count > 0
 ```
+
+To enable the optional keyboard-driven height takeover test:
+
+```sh
+l1_adaptive_control rc_control enable
+l1_keyboard_throttle start
+```
+
+Keyboard controls:
+
+```text
+w  throttle += 0.2
+s  throttle -= 0.2
+0  throttle = 0 and disable l1_adaptive_control rc_control
+q  throttle = 0 and quit
+```
+
+The keyboard tool publishes `manual_control_setpoint.throttle` in `[-1, 1]`.
+It does not publish thrust setpoints directly; height changes still flow through
+the L1 trajectory generator and geometric controller.
 
 Inspect the PX4 setpoint topics:
 
@@ -240,4 +269,3 @@ l1_adaptive_control start
 l1_adaptive_control status
 l1_adaptive_control stop
 ```
-

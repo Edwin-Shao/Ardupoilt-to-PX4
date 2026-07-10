@@ -1,0 +1,6 @@
+menuconfig MODULES_L1_KEYBOARD_THROTTLE
+	bool "l1_keyboard_throttle"
+	default n
+	depends on MODULES_L1_ADAPTIVE_CONTROL
+	---help---
+		Enable keyboard throttle input for testing l1_adaptive_control rc_control
