@@ -52,9 +52,13 @@ l1_keyboard_throttle/
   CMakeLists.txt
   Kconfig
   L1KeyboardThrottle.cpp
+patches/
+  px4-v1.17.0-gazebo-classic-ctrl-c-cleanup.patch
+指导.txt
 ```
 
 This repository is not a full PX4 fork. It contains the custom module that should be copied into a PX4 v1.17.0 checkout.
+The `patches/` directory stores small PX4-side integration patches that are needed for this workspace but should not require pushing a full PX4 fork.
 
 ## Reproduce From A Fresh Checkout
 
@@ -116,6 +120,16 @@ make px4_sitl_default boardconfig
 ```
 
 Then check that `modules/l1_adaptive_control` is enabled.
+
+### 4.1. Apply The Gazebo Classic Ctrl-C Cleanup Patch
+
+This workspace uses a small PX4 `sitl_run.sh` patch so that pressing `Ctrl+C`
+after `PX4 Exiting...` also cleans up `gzserver` and `gzclient`.
+
+```bash
+cd ~/px4_ws/PX4-Autopilot-v1.17.0
+git apply ../Ardupoilt-to-PX4/patches/px4-v1.17.0-gazebo-classic-ctrl-c-cleanup.patch
+```
 
 ### 5. Build PX4 SITL
 
