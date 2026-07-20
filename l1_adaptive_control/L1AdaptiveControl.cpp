@@ -256,27 +256,18 @@ _trajectory_update_executed = _trajectory_generator.update(_trajectory_input, _t
 
 void L1AdaptiveControl::update_manual_height_control_input()
 {
-_manual_height_control_valid = false;
-_manual_height_stick = 0.f;
+	_manual_height_control_valid = false;
+	_manual_height_stick = 0.f;
 
-if (!_rc_height_control_enabled.load() || !_has_manual_control_setpoint || !_manual_control_setpoint.valid) {
-return;
-}
+	if (!_rc_height_control_enabled.load()) {
+		return;
+	}
 
-if (_manual_control_setpoint.timestamp == 0 || _manual_control_setpoint.timestamp > _state.timestamp_us) {
-return;
-}
-
-if (_state.timestamp_us - _manual_control_setpoint.timestamp > MANUAL_CONTROL_TIMEOUT_US) {
-return;
-}
-
-if (!PX4_ISFINITE(_manual_control_setpoint.throttle)) {
-return;
-}
-
-_manual_height_stick = math::constrain(_manual_control_setpoint.throttle, -1.f, 1.f);
-_manual_height_control_valid = true;
+	if (_input_rc_sub.update(&_input_rc) && _input_rc.channel_count >= 3) {
+		float rc_throttle = (_input_rc.values[2] - 1500.0f) / 500.0f;
+		_manual_height_stick = math::constrain(rc_throttle, -1.0f, 1.0f);
+		_manual_height_control_valid = true;
+	}
 }
 
 void L1AdaptiveControl::update_controller_input()

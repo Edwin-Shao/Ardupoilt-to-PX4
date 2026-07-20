@@ -18,6 +18,7 @@
 #include <uORB/topics/vehicle_attitude.h>
 #include <uORB/topics/vehicle_angular_velocity.h>
 #include <uORB/topics/manual_control_setpoint.h>
+#include <uORB/topics/input_rc.h>
 #include <uORB/topics/vehicle_status.h>
 #include <uORB/topics/vehicle_thrust_setpoint.h>
 #include <uORB/topics/vehicle_torque_setpoint.h>
@@ -105,6 +106,7 @@ uORB::Subscription _vehicle_local_position_sub{ORB_ID(vehicle_local_position)};
 uORB::Subscription _vehicle_attitude_sub{ORB_ID(vehicle_attitude)};
 uORB::Subscription _vehicle_angular_velocity_sub{ORB_ID(vehicle_angular_velocity)};
 uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};
+uORB::Subscription _input_rc_sub{ORB_ID(input_rc)};
 uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
 
 uORB::Publication<vehicle_thrust_setpoint_s> _vehicle_thrust_setpoint_pub{ORB_ID(vehicle_thrust_setpoint)};
@@ -114,6 +116,7 @@ vehicle_local_position_s _vehicle_local_position{};
 vehicle_attitude_s _vehicle_attitude{};
 vehicle_angular_velocity_s _vehicle_angular_velocity{};
 manual_control_setpoint_s _manual_control_setpoint{};
+input_rc_s _input_rc{};
 vehicle_status_s _vehicle_status{};
 
 bool _has_local_position{false};
