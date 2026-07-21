@@ -123,7 +123,37 @@ q  退出键盘工具，并把 throttle 清零
 4. 按 q 退出键盘工具后，可以继续切换 trajectory hover/circle。
 
 
-六、结束键盘操控
+六、Jumper T14 + QGC Joystick（Gazebo Harmonic）
+
+当前 Ubuntu 24.04 + PX4 v1.17.0 环境使用：
+
+cd ~/PX4-Autopilot-v1.17.0
+make px4_sitl gz_x500
+
+T14 使用 EdgeTX Advanced USB Joystick，设置：
+
+CH1 Ail -> X
+CH2 Ele -> Y
+CH3 Thr -> Z
+CH4 Rud -> rotX
+
+重新连接 USB 时选择 Joystick (HID)，然后在 QGC 的
+Vehicle Setup -> Joystick 中完成校准。
+
+在 pxh> 中执行：
+
+param set COM_RC_IN_MODE 2
+mc_rate_control stop
+l1_adaptive_control start
+l1_adaptive_control rc_control enable
+commander arm -f
+
+L1 优先读取有效的 input_rc；RC 无效时自动回退到 QGC Joystick
+的 manual_control_setpoint。使用 Joystick 时不要启动
+l1_keyboard_throttle。
+
+
+七、结束键盘操控
 
 在键盘工具运行时按：
 
@@ -140,7 +170,7 @@ l1_adaptive_control rc_control status
 看到 RC height control: disabled 即可。
 
 
-七、结束仿真
+八、结束仿真
 
 如果正在键盘工具里，先按：
 
@@ -160,7 +190,7 @@ build/px4_sitl_default/bin/px4-shutdown
 如果仍有残留，再执行第一节“清理残留仿真”。
 
 
-八、方式 B：pxh 不可用时的备用起飞和轨迹
+九、方式 B：pxh 不可用时的备用起飞和轨迹
 
 如果你的终端无法稳定使用 pxh>，可以用后台模式启动并用 px4-* client 命令控制。这个方式能起飞和切换轨迹，但不能使用键盘 w/s/0/r/q。
 
@@ -199,7 +229,7 @@ build/px4_sitl_default/bin/px4-l1_adaptive_control trajectory hover
 build/px4_sitl_default/bin/px4-shutdown
 
 
-九、常见问题
+十、常见问题
 
 1. 输入 make 后出现 pxh> Exiting NOW。
 
