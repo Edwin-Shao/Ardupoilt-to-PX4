@@ -1,0 +1,27 @@
+diff --git a/boards/px4/sitl/default.px4board b/boards/px4/sitl/default.px4board
+index ebe4f4ca5b..03c4adc12f 100644
+--- a/boards/px4/sitl/default.px4board
++++ b/boards/px4/sitl/default.px4board
+@@ -85,3 +85,6 @@ CONFIG_EXAMPLES_PX4_MAVLINK_DEBUG=y
+ CONFIG_EXAMPLES_PX4_SIMPLE_APP=y
+ CONFIG_EXAMPLES_WORK_ITEM=y
+ CONFIG_MODULES_SPACECRAFT=n
++
++CONFIG_MODULES_L1_ADAPTIVE_CONTROL=y
++CONFIG_MODULES_L1_KEYBOARD_THROTTLE=y
+diff --git a/src/modules/simulation/gz_plugins/CMakeLists.txt b/src/modules/simulation/gz_plugins/CMakeLists.txt
+index 7fc65c8b5b..cc717abb69 100644
+--- a/src/modules/simulation/gz_plugins/CMakeLists.txt
++++ b/src/modules/simulation/gz_plugins/CMakeLists.txt
+@@ -73,8 +73,9 @@ if (gz-transport_FOUND)
+
+     # Add an alias target for each plugin
+     if (TARGET GstCameraSystem)
+-        add_custom_target(px4_gz_plugins ALL DEPENDS OpticalFlowSystem MovingPlatformController TemplatePlugin GenericMotorModelPlugin BuoyancySystemPlugin GstCameraSystem SpacecraftThrusterModelPlugin)
++        add_custom_target(px4_gz_plugins ALL DEPENDS MotorFailureSystem OpticalFlowSystem MovingPlatformController TemplatePlugin GenericMotorModelPlugin BuoyancySystemPlugin GstCameraSystem SpacecraftThrusterModelPlugin)
+     else()
+-        add_custom_target(px4_gz_plugins ALL DEPENDS OpticalFlowSystem MovingPlatformController TemplatePlugin GenericMotorModelPlugin BuoyancySystemPlugin SpacecraftThrusterModelPlugin)
++        add_custom_target(px4_gz_plugins ALL DEPENDS MotorFailureSystem OpticalFlowSystem MovingPlatformController TemplatePlugin GenericMotorModelPlugin BuoyancySystemPlugin SpacecraftThrusterModelPlugin)
+     endif()
+ endif()
++add_subdirectory(motor_failure)

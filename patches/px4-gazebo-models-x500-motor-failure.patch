@@ -1,0 +1,11 @@
+diff --git a/models/x500/model.sdf b/models/x500/model.sdf
+index f5ca2f3..e516001 100644
+--- a/models/x500/model.sdf
++++ b/models/x500/model.sdf
+@@ -72,5 +72,6 @@
+       <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+       <motorType>velocity</motorType>
+     </plugin>
++    <plugin filename="libMotorFailureSystem.so" name="gz::sim::systems::MotorFailureSystem"/>
+   </model>
+ </sdf>

@@ -283,3 +283,18 @@ l1_adaptive_control start
 l1_adaptive_control status
 l1_adaptive_control stop
 ```
+
+
+## Ubuntu 24.04 / Gazebo Harmonic (Current SITL Setup)
+
+The official [PX4-Autopilot v1.17.0](https://github.com/PX4/PX4-Autopilot/tree/v1.17.0) source is linked as the `PX4-Autopilot` submodule. The repository also includes the Harmonic motor-failure plugin and the minimal integration patches used by the current Ubuntu 24.04 setup.
+
+```bash
+git clone --recurse-submodules https://github.com/Edwin-Shao/Ardupoilt-to-PX4.git
+cd Ardupoilt-to-PX4
+./scripts/install_sitl.sh
+cd PX4-Autopilot
+make px4_sitl gz_x500
+```
+
+The L1 controller accepts both PX4 `input_rc` and QGroundControl Joystick input. Valid RC input has priority; Joystick/manual control is the fallback. The Gazebo motor-failure plugin and keyboard module are SITL-only; the core `l1_adaptive_control` module is also the basis for later hardware builds.
