@@ -175,6 +175,8 @@ if (_manual_control_setpoint_sub.update(&_manual_control_setpoint)) {
 _has_manual_control_setpoint = true;
 }
 
+_input_rc_sub.update(&_input_rc);
+
 if (_vehicle_status_sub.update(&_vehicle_status)) {
 _has_vehicle_status = true;
 }
@@ -276,9 +278,26 @@ void L1AdaptiveControl::update_manual_height_control_input()
 		return;
 	}
 
-	if (_input_rc_sub.update(&_input_rc) && _input_rc.channel_count >= 3) {
-		float rc_throttle = (_input_rc.values[2] - 1500.0f) / 500.0f;
+	const hrt_abstime now_us = hrt_absolute_time();
+	const bool rc_valid = _input_rc.channel_count >= 3
+			      && !_input_rc.rc_lost
+			      && !_input_rc.rc_failsafe
+			      && now_us - _input_rc.timestamp_last_signal <= MANUAL_CONTROL_TIMEOUT_US;
+
+	if (rc_valid) {
+		const float rc_throttle = (_input_rc.values[2] - 1500.0f) / 500.0f;
 		_manual_height_stick = math::constrain(rc_throttle, -1.0f, 1.0f);
+		_manual_height_control_valid = true;
+		return;
+	}
+
+	const bool joystick_valid = _has_manual_control_setpoint
+				    && _manual_control_setpoint.valid
+				    && PX4_ISFINITE(_manual_control_setpoint.throttle)
+				    && now_us - _manual_control_setpoint.timestamp_sample <= MANUAL_CONTROL_TIMEOUT_US;
+
+	if (joystick_valid) {
+		_manual_height_stick = math::constrain(_manual_control_setpoint.throttle, -1.0f, 1.0f);
 		_manual_height_control_valid = true;
 	}
 }

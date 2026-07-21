@@ -5,19 +5,35 @@
 #include <px4_platform_common/module.h>
 #include <uORB/Publication.hpp>
 #include <uORB/topics/manual_control_setpoint.h>
-#include <uORB/topics/vehicle_command.h>
 
 #include <math.h>
 #include <poll.h>
 #include <string.h>
 #include <termios.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 extern "C" __EXPORT int l1_keyboard_throttle_main(int argc, char *argv[]);
 namespace
 {
 
 static constexpr int PUBLISH_INTERVAL_MS = 50;
+
+bool publish_gazebo_motor_failure(bool failed)
+{
+	const char *command = failed
+		? "gz topic -t /model/x500_0/motor_failure/motor_number -m gz.msgs.Int32 -p 'data: 1'"
+		: "gz topic -t /model/x500_0/motor_failure/motor_number -m gz.msgs.Int32 -p 'data: 0'";
+
+	const int ret = system(command);
+
+	if (ret != 0) {
+		PX4_ERR("Gazebo motor failure command failed (%d)", ret);
+		return false;
+	}
+
+	return true;
+}
 
 class RawTerminalGuard
 {
@@ -72,23 +88,10 @@ void publish_manual_control(uORB::Publication<manual_control_setpoint_s> &publis
 	publisher.publish(manual);
 }
 
-void publish_motor_failure_command(uORB::Publication<vehicle_command_s> &publisher, uint8_t failure_type)
-{
-	vehicle_command_s command{};
-	command.timestamp = hrt_absolute_time();
-	command.command = vehicle_command_s::VEHICLE_CMD_INJECT_FAILURE;
-	command.param1 = static_cast<float>(vehicle_command_s::FAILURE_UNIT_SYSTEM_MOTOR);
-	command.param2 = static_cast<float>(failure_type);
-	command.param3 = static_cast<float>(L1_KEYBOARD_THROTTLE_FAILED_MOTOR_INSTANCE);
-
-	publisher.publish(command);
-}
-
 int run_keyboard_throttle()
 {
 	RawTerminalGuard terminal_guard;
 	uORB::Publication<manual_control_setpoint_s> manual_control_pub{ORB_ID(manual_control_setpoint)};
-	uORB::Publication<vehicle_command_s> vehicle_command_pub{ORB_ID(vehicle_command)};
 	L1KeyboardThrottleState state{};
 
 	PX4_INFO("l1_keyboard_throttle started");
@@ -112,12 +115,14 @@ int run_keyboard_throttle()
 					PX4_INFO("throttle = %.1f", (double)state.throttle);
 
 				} else if (action == L1KeyboardThrottleAction::InjectMotorFailure) {
-					publish_motor_failure_command(vehicle_command_pub, vehicle_command_s::FAILURE_TYPE_OFF);
-					PX4_WARN("motor %d failure injected", L1_KEYBOARD_THROTTLE_FAILED_MOTOR_INSTANCE);
+					if (publish_gazebo_motor_failure(true)) {
+						PX4_WARN("motor 1 failure injected (Gazebo)");
+					}
 
 				} else if (action == L1KeyboardThrottleAction::RestoreMotor) {
-					publish_motor_failure_command(vehicle_command_pub, vehicle_command_s::FAILURE_TYPE_OK);
-					PX4_WARN("motor %d restored", L1_KEYBOARD_THROTTLE_FAILED_MOTOR_INSTANCE);
+					if (publish_gazebo_motor_failure(false)) {
+						PX4_INFO("motor 1 restored (Gazebo)");
+					}
 
 				} else if (action == L1KeyboardThrottleAction::Quit) {
 					publish_manual_control(manual_control_pub, state.throttle);
