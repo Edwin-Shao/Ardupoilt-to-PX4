@@ -1,266 +1,273 @@
-PX4 v1.17.0 L1 控制器最简操作指导
+L1Quad SITL 快速操作
 
-工程目录：
-
-  /home/aim/px4_ws/PX4-Autopilot-v1.17.0
-
-本指导只用于 Gazebo Classic UI 仿真，不要用于真实飞机。
-
-
-一、先清理残留仿真
-
-如果上一次仿真异常退出，先执行：
-
-cd /home/aim/px4_ws/PX4-Autopilot-v1.17.0
-build/px4_sitl_default/bin/px4-shutdown 2>/dev/null || true
-pkill -x gzclient 2>/dev/null || true
-pkill -x gzserver 2>/dev/null || true
-pkill -x gazebo 2>/dev/null || true
-pkill -f build/px4_sitl_default/bin/px4 2>/dev/null || true
-pkill -f sitl_run.sh 2>/dev/null || true
-
-确认没有残留：
-
-ps -eo pid,comm,args | awk '$2=="px4" || $2=="gzserver" || $2=="gzclient" || $2=="gazebo" || $2=="sitl_run.sh" {print}'
-
-如果没有输出，说明已经清理干净。
-
-
-二、方式 A：需要键盘操控时使用
-
-键盘 w/s/0/r/q 需要真实可交互终端，所以必须让 PX4 进入 pxh>。
-
-打开一个普通终端，执行：
-
-cd /home/aim/px4_ws/PX4-Autopilot-v1.17.0
-source /home/aim/px4_ws/px4-venv/bin/activate
-unset HEADLESS
-unset NO_PXH
-make px4_sitl gazebo-classic_iris
-
-正常现象：
-
-1. Gazebo Classic UI 打开。
-2. Iris 四旋翼出现。
-3. 终端出现 pxh>。
-
-如果出现 pxh> 后马上 Exiting NOW，或 pxh> 高速刷新，说明当前终端不能做键盘操控。请换一个真实桌面终端再试，或使用下方“方式 B”。
-
-
-三、启动 L1 并起飞
-
-看到 pxh> 后输入：
-
-mc_rate_control stop
-l1_adaptive_control start
-commander arm
-
-如果 arm 被 EKF 或 preflight 拒绝，等 3-5 秒后再输入一次：
-
-commander arm
-
-预期现象：
-
-1. 飞机解锁。
-2. 自动起飞到约 1 米。
-3. 起飞完成后进入悬停。
-
-检查状态：
-
-l1_adaptive_control status
-listener vehicle_local_position 1
-
-成功时重点看：
-
-armed=1
-failsafe=0
-valid=1
-pipeline: traj=1 geo=1 l1=1 publish=1
-vehicle_local_position 的 z 接近 -1.0
-
-
-四、随时切换轨迹
-
-查看当前轨迹：
-
-l1_adaptive_control trajectory status
-
-切到圆轨迹：
-
-l1_adaptive_control trajectory circle
-
-切回悬停：
-
-l1_adaptive_control trajectory hover
-
-建议先等飞机起飞并稳定悬停后，再切换圆轨迹。
-
-
-五、随时启动键盘操控
-
-先确认飞机已经起飞或正在悬停，然后在 pxh> 输入：
-
-l1_adaptive_control rc_control enable
-l1_keyboard_throttle start
-
-启动后当前终端会进入键盘读取状态，不会继续显示 pxh>。
-此时直接按键，不需要回车。
-
-按键：
-
-w  目标高度上升
-s  目标高度下降
-x 或空格  停止继续上升/下降，保持当前目标高度
-0  固定失能 Motor 1
-r  恢复 Motor 1
-q  退出键盘工具，并把 throttle 清零
-
-飞圆形轨迹时也可以使用同一套高度控制：
-
-1. 先执行 l1_adaptive_control trajectory circle。
-2. 再执行 l1_adaptive_control rc_control enable 和 l1_keyboard_throttle start。
-3. 按 w 上升，按 s 下降，按 x 或空格保持当前高度。
-4. 按 q 退出键盘工具后，可以继续切换 trajectory hover/circle。
-
-
-六、Jumper T14 + QGC Joystick（Gazebo Harmonic）
-
-当前 Ubuntu 24.04 + PX4 v1.17.0 环境使用：
+1. 启动仿真
 
 cd ~/PX4-Autopilot-v1.17.0
 make px4_sitl gz_x500
 
-T14 使用 EdgeTX Advanced USB Joystick，设置：
 
-CH1 Ail -> X
-CH2 Ele -> Y
-CH3 Thr -> Z
-CH4 Rud -> rotX
+2. 出现 pxh> 后，直接复制以下命令
 
-重新连接 USB 时选择 Joystick (HID)，然后在 QGC 的
-Vehicle Setup -> Joystick 中完成校准。
-
-在 pxh> 中执行：
-
-param set COM_RC_IN_MODE 2
+param set CA_FAILURE_MODE 1
 mc_rate_control stop
 l1_adaptive_control start
 l1_adaptive_control rc_control enable
 commander arm -f
 
-L1 优先读取有效的 input_rc；RC 无效时自动回退到 QGC Joystick
-的 manual_control_setpoint。使用 Joystick 时不要启动
-l1_keyboard_throttle。
+飞机会自动起飞到约 1 m 并悬停。
 
 
-七、结束键盘操控
+3. 飞机稳定悬停后，在 pxh> 输入
 
-在键盘工具运行时按：
+l1_keyboard_throttle start
 
-q
+进入键盘控制后，按键不需要回车：
 
-回到 pxh> 后输入：
+w          上升
+s          下降
+x 或空格   保持当前高度
+0          Motor 1 失效
+r          恢复 Motor 1
+q          退出键盘控制，返回 pxh>
 
-l1_adaptive_control rc_control disable
-
-查看是否关闭：
-
-l1_adaptive_control rc_control status
-
-看到 RC height control: disabled 即可。
+单电机失效后飞机允许绕 yaw 旋转和少量水平漂移，主要观察是否能避免迅速翻落并尽量保持高度。
 
 
-八、结束仿真
+4. 结束仿真
 
-如果正在键盘工具里，先按：
-
-q
-
-然后在 pxh> 输入：
+如果还在键盘控制中，先按 q，然后在 pxh> 输入：
 
 shutdown
 
-也可以按 Ctrl+C 结束仿真。当前工作区已经加了退出兜底：第一次 Ctrl+C 会正常请求 PX4 退出；如果 5 秒内仍卡在 PX4 Exiting，会自动强制结束；第二次 Ctrl+C 会立即强制结束。
 
-如果 pxh> 已经不可用，可以打开另一个终端执行：
+5. 使用 QGC Joystick 时
 
-cd /home/aim/px4_ws/PX4-Autopilot-v1.17.0
-build/px4_sitl_default/bin/px4-shutdown
+出现 pxh> 后复制：
 
-如果仍有残留，再执行第一节“清理残留仿真”。
+param set COM_RC_IN_MODE 2
+param set CA_FAILURE_MODE 1
+mc_rate_control stop
+l1_adaptive_control start
+l1_adaptive_control rc_control enable
+commander arm -f
 
-
-九、方式 B：pxh 不可用时的备用起飞和轨迹
-
-如果你的终端无法稳定使用 pxh>，可以用后台模式启动并用 px4-* client 命令控制。这个方式能起飞和切换轨迹，但不能使用键盘 w/s/0/r/q。
-
-启动：
-
-cd /home/aim/px4_ws/PX4-Autopilot-v1.17.0
-source /home/aim/px4_ws/px4-venv/bin/activate
-unset HEADLESS
-export NO_PXH=1
-make px4_sitl gazebo-classic_iris > /tmp/px4_l1_ui.log 2>&1 &
-
-等待启动：
-
-sleep 18
-
-启动 L1 并起飞：
-
-build/px4_sitl_default/bin/px4-mc_rate_control stop
-build/px4_sitl_default/bin/px4-l1_adaptive_control start
-sleep 8
-build/px4_sitl_default/bin/px4-commander arm
-
-检查：
-
-build/px4_sitl_default/bin/px4-l1_adaptive_control status
-build/px4_sitl_default/bin/px4-listener vehicle_local_position 1
-
-轨迹：
-
-build/px4_sitl_default/bin/px4-l1_adaptive_control trajectory status
-build/px4_sitl_default/bin/px4-l1_adaptive_control trajectory circle
-build/px4_sitl_default/bin/px4-l1_adaptive_control trajectory hover
-
-结束：
-
-build/px4_sitl_default/bin/px4-shutdown
+使用 QGC Joystick 时不要启动 l1_keyboard_throttle。
+当前 Joystick 用于高度控制；Motor 1 失效仍使用键盘 0 键测试。
 
 
-十、常见问题
+==================== 以下内容仅在安装或排错时查看 ====================
 
-1. 输入 make 后出现 pxh> Exiting NOW。
 
-当前终端不能作为 PX4 交互 shell。需要键盘操控时，换一个真实桌面终端重新执行方式 A；只需要起飞和轨迹时，用方式 B。
+6. 首次安装或 simulation 分支更新后同步代码
 
-2. 输入 commander arm 后不飞。
+仓库：
 
-确认先执行了：
+cd ~/UNNC/L1Quad/Ardupoilt-to-PX4
+
+确认使用仿真分支：
+
+git branch --show-current
+
+正常应显示：
+
+simulation
+
+如果不是 simulation：
+
+git switch simulation
+
+将仓库代码和补丁安装到 PX4：
+
+./scripts/install_sitl.sh ~/PX4-Autopilot-v1.17.0
+
+只编译、不启动仿真：
+
+cd ~/PX4-Autopilot-v1.17.0
+make px4_sitl_default
+
+安装脚本会复制两个 L1 模块、Gazebo 电机故障插件，并应用 Harmonic、
+x500 电机失效和 PX4 控制分配补丁。补丁已经应用时不会重复应用。
+
+main 是真机开发分支，不要把 main 直接安装到当前 Ubuntu SITL 目录。
+
+
+7. 基础悬停的工作原理
+
+L1 模块以约 250 Hz 运行，读取：
+
+  vehicle_local_position
+  vehicle_attitude
+  vehicle_angular_velocity
+
+启动后的控制顺序：
+
+  记录当前起飞位置和 yaw
+      ↓
+  2 秒内上升到相对高度 1 m
+      ↓
+  几何控制器计算总推力和 roll/pitch/yaw 力矩
+      ↓
+  L1 自适应控制叠加扰动补偿
+      ↓
+  发布 vehicle_thrust_setpoint 和 vehicle_torque_setpoint
+      ↓
+  PX4 ControlAllocator 计算四个电机输出
+
+正常悬停时控制完整位置和姿态。RC、QGC Joystick 和键盘只改变目标高度，
+不会绕过几何控制器直接改变电机输出。
+
+
+8. 单电机失效的工作原理
+
+按 0 后，键盘模块不再直接调用 gz topic，而是向 PX4 发布：
+
+  VEHICLE_CMD_INJECT_FAILURE
+
+PX4 内部处理顺序：
+
+  FailureInjector 设置 Motor 1 停转
+      ↓
+  FailureDetector 发布 motor_stop_mask / motor_failure_mask
+      ↓
+  L1 控制器进入 motor-out 模式并重置自适应状态
+      ↓
+  ControlAllocator 移除故障电机
+      ↓
+  控制器放弃 yaw，剩余三个电机优先控制推力、roll 和 pitch
+
+三个电机无法同时独立控制总推力、roll、pitch 和 yaw，所以故障后必须放弃
+yaw。飞机持续旋转属于预期现象。
+
+故障模式还会暂时放弃严格水平位置保持，因此允许少量水平漂移。目标是避免
+快速翻落并尽可能保持高度，不是保持原来的机头方向和精确位置。
+
+
+9. 故障测试前后的检查
+
+故障前检查：
+
+param show CA_FAILURE_MODE
+listener failure_detector_status 1
+
+正常应为：
+
+  CA_FAILURE_MODE = 1
+  motor_failure_mask = 0
+  motor_stop_mask = 0
+
+按 0 后，至少一个 motor mask 应变为非零，并看到类似提示：
+
+  motor-out mode active
+  yaw control released
+
+按 r 后，mask 应恢复为零，并看到 yaw control restored。
+
+键盘模块运行时 pxh> 被占用。需要同时查看 topic 时，在第二个终端执行：
+
+cd ~/PX4-Autopilot-v1.17.0
+build/px4_sitl_default/bin/px4-listener failure_detector_status 1
+
+
+10. 故障后迅速翻落的排查顺序
+
+不要一次修改多个参数，按以下顺序检查：
+
+1. 确认 CA_FAILURE_MODE=1；
+2. 确认按 0 后 motor_stop_mask 或 motor_failure_mask 非零；
+3. 确认 Gazebo 中 Motor 1 实际停转；
+4. 确认控制器提示 yaw control released；
+5. 确认其余三个电机没有全部长期饱和；
+6. 确认 simulation 分支的安装脚本和补丁已经应用；
+7. 最后才逐步调整 roll/pitch 的 KR 和 KO。
+
+当前 x500 仿真参考值：
+
+  VEHICLE_MASS_KG = 2.0643
+  KR_X = KR_Y = 1.0
+  KO_X = KO_Y = 0.3
+  SIM_GZ_EC_MAX1~4 = 1250
+
+这些数值只适用于当前 x500 仿真。
+
+
+11. 常见启动信息
+
+gz_frame_id 警告：
+
+Gazebo/SDF 解析器把 PX4 的扩展字段作为子元素复制。只要传感器正常、EKF
+恢复且能够起飞，可以忽略。
+
+LED: open /dev/led0 failed：
+
+SITL 没有真实飞控 LED，可以忽略。
+
+Preflight Fail: ekf2 missing data：
+
+刚启动时可能短暂出现。先等待 Gazebo 传感器和 EKF 初始化；如果持续存在，
+再检查 Gazebo 是否正常运行。
+
+Preflight Fail: system power unavailable：
+
+SITL 没有真实电源模块，通常不影响 commander arm -f 测试。
+
+Preflight Fail: No connection to the GCS：
+
+未连接 QGC 时会出现。连接 QGC 后通常消失。
+
+MAVLink only on localhost：
+
+这是信息提示，表示 MAVLink 默认只监听本机，不是错误。
+
+
+12. 无法起飞或键盘无反应
+
+无法起飞：
+
+确认执行顺序为：
 
 mc_rate_control stop
 l1_adaptive_control start
+commander arm -f
 
-然后等 8 秒再 arm。
+按 w/s 没反应：
 
-3. 按 w/s 没反应。
-
-确认已经执行：
+确认先执行：
 
 l1_adaptive_control rc_control enable
 l1_keyboard_throttle start
 
-并且当前终端停在 l1_keyboard_throttle 工具里。键盘工具运行时不会显示 pxh>。
+并确认当前终端已经进入键盘模块。按键不需要回车。
 
-4. 按 0 后飞机不稳。
+QGC Joystick 油门不动：
 
-0 会真实注入 Motor 1 off。普通四旋翼单电机完全失能后不保证还能稳定悬停。
+检查 Jumper T14 是否选择 USB Joystick (HID)，并在 QGC 的
+Vehicle Setup -> Joystick 中重新校准。T14 通道保持：
 
-5. MAVLink only on localhost 是错误吗？
+  CH1 Ail
+  CH2 Ele
+  CH3 Thr
+  CH4 Rud
 
-不是。这只是提示 MAVLink 只监听本机。
 
-6. poll timeout 是错误吗？
+13. 仿真专用安全设置
 
-不一定。Gazebo UI 卡顿时可能出现 poll timeout。当前工作区已经把这类日志限频，避免它持续刷屏影响 pxh> 输入。只要飞机能起飞、status 正常、位置 z 接近 -1.0，就先不要把它当作 L1 控制器失败。
+simulation 分支为了观察单电机恢复，关闭了部分会立即终止飞行的检查，例如：
+
+  COM_ACT_FAIL_ACT = 0
+  FD_ACT_EN = 0
+  FD_ESCS_EN = 0
+  FD_FAIL_R = 0
+  FD_FAIL_P = 0
+
+这些参数会让 PX4 在主动制造故障后继续运行控制器，只能用于 SITL。
+
+以下内容不得直接用于真机：
+
+  commander arm -f
+  上述关闭故障保护的参数
+  x500 的质量和增益
+  SIM_GZ_EC_MIN/MAX
+  Gazebo yawDragCoefficient
+
+真机测试前必须重新测量质量、惯量、机臂、电机和螺旋桨参数，并先在拆桨和
+低功率台架条件下验证遥控器拨杆逻辑。
