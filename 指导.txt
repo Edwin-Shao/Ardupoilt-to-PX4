@@ -52,7 +52,17 @@ l1_adaptive_control rc_control enable
 commander arm -f
 
 使用 QGC Joystick 时不要启动 l1_keyboard_throttle。
-当前 Joystick 用于高度控制；Motor 1 失效仍使用键盘 0 键测试。
+
+在 QGC Joystick 通道设置中，把一个两段拨杆映射到 AUX1：
+
+  AUX1 低位（QGC Joystick 约 0，真机 RC 约 -1）  Motor 1 正常
+  AUX1 高位（约 +1）  Motor 1 失效
+
+起飞前先把 AUX1 放在低位。解锁后看到 AUX1 motor failure switch ready，
+再拨到高位注入故障；拨回低位恢复 Motor 1。
+
+首次使用时先不要起飞，执行 listener manual_control_setpoint 5，确认拨杆能让
+QGC Joystick 的 aux1 在约 0 和 +1 之间切换；真机 RC 通常在约 -1 和 +1 之间切换。
 
 
 ==================== 以下内容仅在安装或排错时查看 ====================
@@ -119,7 +129,7 @@ L1 模块以约 250 Hz 运行，读取：
 
 8. 单电机失效的工作原理
 
-按 0 后，键盘模块不再直接调用 gz topic，而是向 PX4 发布：
+按键盘 0 或把 Joystick AUX1 拨到高位后，模块向 PX4 发布：
 
   VEHICLE_CMD_INJECT_FAILURE
 
@@ -155,12 +165,12 @@ listener failure_detector_status 1
   motor_failure_mask = 0
   motor_stop_mask = 0
 
-按 0 后，至少一个 motor mask 应变为非零，并看到类似提示：
+按 0 或把 AUX1 拨到高位后，至少一个 motor mask 应变为非零，并看到类似提示：
 
   motor-out mode active
   yaw control released
 
-按 r 后，mask 应恢复为零，并看到 yaw control restored。
+按 r 或把 AUX1 拨回低位后，mask 应恢复为零，并看到 yaw control restored。
 
 键盘模块运行时 pxh> 被占用。需要同时查看 topic 时，在第二个终端执行：
 
@@ -173,7 +183,7 @@ build/px4_sitl_default/bin/px4-listener failure_detector_status 1
 不要一次修改多个参数，按以下顺序检查：
 
 1. 确认 CA_FAILURE_MODE=1；
-2. 确认按 0 后 motor_stop_mask 或 motor_failure_mask 非零；
+2. 确认按 0 或拨高 AUX1 后 motor_stop_mask 或 motor_failure_mask 非零；
 3. 确认 Gazebo 中 Motor 1 实际停转；
 4. 确认控制器提示 yaw control released；
 5. 确认其余三个电机没有全部长期饱和；

@@ -21,6 +21,7 @@
 #include <uORB/topics/input_rc.h>
 #include <uORB/topics/failure_detector_status.h>
 #include <uORB/topics/vehicle_status.h>
+#include <uORB/topics/vehicle_command.h>
 #include <uORB/topics/vehicle_thrust_setpoint.h>
 #include <uORB/topics/vehicle_torque_setpoint.h>
 
@@ -98,6 +99,8 @@ void update_internal_state();
 void update_trajectory_input();
 void run_trajectory_generator();
 void update_manual_height_control_input();
+void update_manual_motor_failure_switch();
+void publish_motor_failure_command(uint8_t failure_type);
 void apply_trajectory_command();
 
 void update_controller_input();
@@ -119,6 +122,7 @@ uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
 
 uORB::Publication<vehicle_thrust_setpoint_s> _vehicle_thrust_setpoint_pub{ORB_ID(vehicle_thrust_setpoint)};
 uORB::Publication<vehicle_torque_setpoint_s> _vehicle_torque_setpoint_pub{ORB_ID(vehicle_torque_setpoint)};
+uORB::Publication<vehicle_command_s> _vehicle_command_pub{ORB_ID(vehicle_command)};
 
 vehicle_local_position_s _vehicle_local_position{};
 vehicle_attitude_s _vehicle_attitude{};
@@ -139,6 +143,8 @@ px4::atomic_bool _rc_height_control_enabled{false};
 px4::atomic<uint8_t> _trajectory_command_mode{static_cast<uint8_t>(TrajectoryGenerator::CommandedMode::Hover)};
 bool _manual_height_control_valid{false};
 float _manual_height_stick{0.f};
+bool _motor_failure_switch_ready{false};
+bool _motor_failure_switch_high{false};
 
 InternalState _state{};
 bool _state_valid_for_control{false};
