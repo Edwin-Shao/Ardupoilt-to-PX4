@@ -28,6 +28,7 @@ copy_tree "$repo_dir/l1_adaptive_control" "$px4_dir/src/modules/l1_adaptive_cont
 copy_tree "$repo_dir/l1_keyboard_throttle" "$px4_dir/src/modules/l1_keyboard_throttle"
 copy_tree "$repo_dir/gz_plugins/motor_failure" "$px4_dir/src/modules/simulation/gz_plugins/motor_failure"
 apply_once "$px4_dir" "$repo_dir/patches/px4-v1.17.0-gz-harmonic-integration.patch"
+apply_once "$px4_dir" "$repo_dir/patches/px4-v1.17.0-motor-failure-allocation.patch"
 apply_once "$px4_dir/Tools/simulation/gz" "$repo_dir/patches/px4-gazebo-models-x500-motor-failure.patch"
 
 echo "Installed. Build with: cd $px4_dir && make px4_sitl gz_x500"

@@ -1,0 +1,266 @@
+diff --git a/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500 b/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
+index 2add7a5cb4..85f45e1486 100644
+--- a/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
++++ b/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
+@@ -15,20 +15,28 @@ param set-default SIM_GZ_EN 1
+ 
+ param set-default CA_AIRFRAME 0
+ param set-default CA_ROTOR_COUNT 4
++param set-default CA_FAILURE_MODE 1
++param set-default COM_ACT_FAIL_ACT 0
++
++# Keep L1 in control while validating injected motor-out recovery in SITL.
++param set-default FD_ACT_EN 0
++param set-default FD_ESCS_EN 0
++param set-default FD_FAIL_R 0
++param set-default FD_FAIL_P 0
+ 
+-param set-default CA_ROTOR0_PX 0.13
+-param set-default CA_ROTOR0_PY 0.22
+-param set-default CA_ROTOR0_KM  0.05
++param set-default CA_ROTOR0_PX 0.174
++param set-default CA_ROTOR0_PY 0.174
++param set-default CA_ROTOR0_KM  0.016
+ 
+-param set-default CA_ROTOR1_PX -0.13
+-param set-default CA_ROTOR1_PY -0.20
+-param set-default CA_ROTOR1_KM  0.05
++param set-default CA_ROTOR1_PX -0.174
++param set-default CA_ROTOR1_PY -0.174
++param set-default CA_ROTOR1_KM  0.016
+ 
+-param set-default CA_ROTOR2_PX 0.13
+-param set-default CA_ROTOR2_PY -0.22
+-param set-default CA_ROTOR2_KM -0.05
++param set-default CA_ROTOR2_PX 0.174
++param set-default CA_ROTOR2_PY -0.174
++param set-default CA_ROTOR2_KM -0.016
+ 
+-param set-default CA_ROTOR3_PX -0.13
+-param set-default CA_ROTOR3_PY 0.20
+-param set-default CA_ROTOR3_KM -0.05
++param set-default CA_ROTOR3_PX -0.174
++param set-default CA_ROTOR3_PY 0.174
++param set-default CA_ROTOR3_KM -0.016
+ 
+@@ -40,12 +48,12 @@ param set-default SIM_GZ_EC_FUNC4 104
+ 
+-param set-default SIM_GZ_EC_MIN1 150
+-param set-default SIM_GZ_EC_MIN2 150
+-param set-default SIM_GZ_EC_MIN3 150
+-param set-default SIM_GZ_EC_MIN4 150
++param set-default SIM_GZ_EC_MIN1 0
++param set-default SIM_GZ_EC_MIN2 0
++param set-default SIM_GZ_EC_MIN3 0
++param set-default SIM_GZ_EC_MIN4 0
+ 
+-param set-default SIM_GZ_EC_MAX1 1000
+-param set-default SIM_GZ_EC_MAX2 1000
+-param set-default SIM_GZ_EC_MAX3 1000
+-param set-default SIM_GZ_EC_MAX4 1000
++param set-default SIM_GZ_EC_MAX1 1250
++param set-default SIM_GZ_EC_MAX2 1250
++param set-default SIM_GZ_EC_MAX3 1250
++param set-default SIM_GZ_EC_MAX4 1250
+ 
+ param set-default MPC_THR_HOVER 0.60
+ param set-default NAV_DLL_ACT 2
+diff --git a/Tools/simulation/gz/models/x500/model.sdf b/Tools/simulation/gz/models/x500/model.sdf
+--- a/Tools/simulation/gz/models/x500/model.sdf
++++ b/Tools/simulation/gz/models/x500/model.sdf
+@@ -10,7 +10,7 @@
+       <turningDirection>ccw</turningDirection>
+       <timeConstantUp>0.0125</timeConstantUp>
+       <timeConstantDown>0.025</timeConstantDown>
+-      <maxRotVelocity>1000.0</maxRotVelocity>
++      <maxRotVelocity>1250.0</maxRotVelocity>
+       <motorConstant>8.54858e-06</motorConstant>
+       <momentConstant>0.016</momentConstant>
+       <commandSubTopic>command/motor_speed</commandSubTopic>
+@@ -27,7 +27,7 @@
+       <turningDirection>ccw</turningDirection>
+       <timeConstantUp>0.0125</timeConstantUp>
+       <timeConstantDown>0.025</timeConstantDown>
+-      <maxRotVelocity>1000.0</maxRotVelocity>
++      <maxRotVelocity>1250.0</maxRotVelocity>
+       <motorConstant>8.54858e-06</motorConstant>
+       <momentConstant>0.016</momentConstant>
+       <commandSubTopic>command/motor_speed</commandSubTopic>
+@@ -44,7 +44,7 @@
+       <turningDirection>cw</turningDirection>
+       <timeConstantUp>0.0125</timeConstantUp>
+       <timeConstantDown>0.025</timeConstantDown>
+-      <maxRotVelocity>1000.0</maxRotVelocity>
++      <maxRotVelocity>1250.0</maxRotVelocity>
+       <motorConstant>8.54858e-06</motorConstant>
+       <momentConstant>0.016</momentConstant>
+       <commandSubTopic>command/motor_speed</commandSubTopic>
+@@ -61,7 +61,7 @@
+       <turningDirection>cw</turningDirection>
+       <timeConstantUp>0.0125</timeConstantUp>
+       <timeConstantDown>0.025</timeConstantDown>
+-      <maxRotVelocity>1000.0</maxRotVelocity>
++      <maxRotVelocity>1250.0</maxRotVelocity>
+       <motorConstant>8.54858e-06</motorConstant>
+       <momentConstant>0.016</momentConstant>
+       <commandSubTopic>command/motor_speed</commandSubTopic>
+@@ -72,6 +72,10 @@
+       <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+       <motorType>velocity</motorType>
+     </plugin>
+-    <plugin filename="libMotorFailureSystem.so" name="gz::sim::systems::MotorFailureSystem"/>
++    <plugin filename="libMotorFailureSystem.so" name="gz::sim::systems::MotorFailureSystem">
++      <!-- Quadratic fuselage yaw drag keeps motor-out spin within the
++           numerically and physically useful range. [N m / (rad/s)^2] -->
++      <yawDragCoefficient>0.012</yawDragCoefficient>
++    </plugin>
+   </model>
+ </sdf>
+diff --git a/src/modules/control_allocator/ControlAllocator.cpp b/src/modules/control_allocator/ControlAllocator.cpp
+--- a/src/modules/control_allocator/ControlAllocator.cpp
++++ b/src/modules/control_allocator/ControlAllocator.cpp
+@@ -551,6 +551,13 @@ ControlAllocator::update_effectiveness_matrix_if_needed(EffectivenessUpdateReas
+ 				++actuator_idx_matrix[selected_matrix];
+ 				++actuator_idx;
+ 			}
++
++			// A quadrotor with one failed motor has only three independent
++			// actuator inputs left. Release yaw in the allocator so roll,
++			// pitch and collective thrust retain full authority.
++			for (int i = 0; i < _num_control_allocation; ++i) {
++				config.effectiveness_matrices[i].row(ControlAllocation::YAW) = 0.f;
++			}
+ 		}
+ 
+ 		for (int i = 0; i < _num_control_allocation; ++i) {
+diff --git a/src/modules/commander/failure_detector/FailureDetector.hpp b/src/modules/commander/failure_detector/FailureDetector.hpp
+index d84581ca5e..86d11bcf6d 100644
+--- a/src/modules/commander/failure_detector/FailureDetector.hpp
++++ b/src/modules/commander/failure_detector/FailureDetector.hpp
+@@ -88,8 +88,10 @@ public:
+ 	const failure_detector_status_u &getStatus() const { return _status; }
+ 	const decltype(failure_detector_status_u::flags) &getStatusFlags() const { return _status.flags; }
+ 	float getImbalancedPropMetric() const { return _imbalanced_prop_lpf.getState(); }
+-	uint16_t getMotorFailures() const { return _motor_failure_esc_timed_out_mask | _motor_failure_esc_under_current_mask; }
+-	uint16_t getMotorStopMask() { return _failure_injector.getMotorStopMask(); }
++	uint16_t getMotorFailures() const {
++		return _motor_failure_esc_timed_out_mask | _motor_failure_esc_under_current_mask | _failure_injector.getMotorStopMask();
++	}
++	uint16_t getMotorStopMask() const { return _failure_injector.getMotorStopMask(); }
+ 
+ private:
+ 	void updateAttitudeStatus(const vehicle_status_s &vehicle_status);
+diff --git a/src/modules/commander/failure_detector/FailureInjector.hpp b/src/modules/commander/failure_detector/FailureInjector.hpp
+index 86f2199723..f88da1d017 100644
+--- a/src/modules/commander/failure_detector/FailureInjector.hpp
++++ b/src/modules/commander/failure_detector/FailureInjector.hpp
+@@ -47,7 +47,7 @@ public:
+ 	void update();
+ 
+ 	void manipulateEscStatus(esc_status_s &status);
+-	uint32_t getMotorStopMask() { return _motor_stop_mask; }
++	uint32_t getMotorStopMask() const { return _motor_stop_mask; }
+ private:
+	uORB::Subscription _vehicle_command_sub{ORB_ID(vehicle_command)};
+	uORB::Publication<vehicle_command_ack_s> _command_ack_pub{ORB_ID(vehicle_command_ack)};
+diff --git a/src/modules/commander/failure_detector/FailureDetector.cpp b/src/modules/commander/failure_detector/FailureDetector.cpp
+--- a/src/modules/commander/failure_detector/FailureDetector.cpp
++++ b/src/modules/commander/failure_detector/FailureDetector.cpp
+@@ -52,6 +52,7 @@ bool FailureDetector::update(const vehicle_status_s &vehicle_status, const vehic
+ 	_failure_injector.update();
+ 
+ 	failure_detector_status_u status_prev = _status;
++	_status.flags.motor = getMotorFailures() != 0;
+ 
+	if (vehicle_control_mode.flag_control_attitude_enabled) {
+		updateAttitudeStatus(vehicle_status);
+diff --git a/src/modules/simulation/gz_plugins/motor_failure/MotorFailureSystem.hpp b/src/modules/simulation/gz_plugins/motor_failure/MotorFailureSystem.hpp
+--- a/src/modules/simulation/gz_plugins/motor_failure/MotorFailureSystem.hpp
++++ b/src/modules/simulation/gz_plugins/motor_failure/MotorFailureSystem.hpp
+@@ -1,6 +1,7 @@
+ #pragma once
+ #include <gz/sim/System.hh>
+ #include <gz/sim/Model.hh>
++#include <gz/sim/Link.hh>
+ #include <gz/transport/Node.hh>
+ #include <gz/msgs/int32.pb.h>
+ #include <mutex>
+@@ -24,11 +25,14 @@
+     void MotorFailureNumberCallback(const gz::msgs::Int32 &_msg);
+     void FindMotorJoints(EntityComponentManager &_ecm);
+     void ApplyMotorFailure(EntityComponentManager &_ecm);
++    void ApplyYawDrag(EntityComponentManager &_ecm);
+ 
+     gz::sim::Model _model{kNullEntity};
++    gz::sim::Link _base_link{kNullEntity};
+     Entity _model_entity{kNullEntity};
+     gz::transport::Node _node;
+     std::string _gz_topic{"/motor_failure/motor_number"};
++    double _yaw_drag_coefficient{0.0};
+     std::vector<Entity> _motor_joints;
+     bool _joints_found{false};
+     int32_t _motor_failure_number{0};
+diff --git a/src/modules/simulation/gz_plugins/motor_failure/MotorFailureSystem.cpp b/src/modules/simulation/gz_plugins/motor_failure/MotorFailureSystem.cpp
+--- a/src/modules/simulation/gz_plugins/motor_failure/MotorFailureSystem.cpp
++++ b/src/modules/simulation/gz_plugins/motor_failure/MotorFailureSystem.cpp
+@@ -3,6 +3,7 @@
+ #include <gz/sim/components/JointVelocityCmd.hh>
+ #include <gz/sim/components/Name.hh>
+ #include <gz/sim/Util.hh>
++#include <cmath>
+ #include <iostream>
+ 
+ using namespace gz;
+@@ -20,6 +21,16 @@
+         return;
+     }
+     std::string model_name = this->_model.Name(_ecm);
++    this->_base_link = Link(this->_model.CanonicalLink(_ecm));
++
++    if (this->_base_link.Valid(_ecm)) {
++        this->_base_link.EnableVelocityChecks(_ecm);
++    }
++
++    if (_sdf->HasElement("yawDragCoefficient")) {
++        this->_yaw_drag_coefficient = _sdf->Get<double>("yawDragCoefficient");
++    }
++
+     if (_sdf->HasElement("MotorFailureTopic")) {
+         this->_gz_topic = _sdf->Get<std::string>("MotorFailureTopic");
+     } else {
+@@ -32,6 +43,27 @@
+     gzmsg << "[MotorFailure] model=" << model_name << " topic=" << this->_gz_topic << std::endl;
+ }
+ 
++void MotorFailureSystem::ApplyYawDrag(EntityComponentManager &_ecm)
++{
++    if (this->_yaw_drag_coefficient <= 0.0 || !this->_base_link.Valid(_ecm)) {
++        return;
++    }
++
++    const auto angular_velocity_world = this->_base_link.WorldAngularVelocity(_ecm);
++    const auto pose_world = this->_base_link.WorldPose(_ecm);
++
++    if (!angular_velocity_world.has_value() || !pose_world.has_value()) {
++        return;
++    }
++
++    const auto body_z_world = pose_world->Rot().RotateVector(math::Vector3d::UnitZ);
++    const double yaw_rate = angular_velocity_world->Dot(body_z_world);
++    const auto drag_torque_world =
++        body_z_world * (-this->_yaw_drag_coefficient * yaw_rate * std::abs(yaw_rate));
++
++    this->_base_link.AddWorldWrench(_ecm, math::Vector3d::Zero, drag_torque_world);
++}
++
+ void MotorFailureSystem::FindMotorJoints(EntityComponentManager &_ecm)
+ {
+     if (this->_joints_found) return;
+@@ -84,6 +116,7 @@
+     if (_info.paused) return;
+     if (!this->_joints_found) { this->FindMotorJoints(_ecm); }
+     else { this->ApplyMotorFailure(_ecm); }
++    this->ApplyYawDrag(_ecm);
+ }
+ 
+ void MotorFailureSystem::MotorFailureNumberCallback(const gz::msgs::Int32 &_msg)
