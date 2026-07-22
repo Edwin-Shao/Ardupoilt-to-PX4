@@ -24,6 +24,7 @@ float target_snap_ned[3]{0.f, 0.f, 0.f};
 float target_yaw{0.f};
 float target_yaw_rate{0.f};
 float target_yaw_accel{0.f};
+bool yaw_control_enabled{true};
 
 bool state_valid_for_control{false};
 bool armed{false};

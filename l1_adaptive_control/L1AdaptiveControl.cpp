@@ -177,6 +177,19 @@ _has_manual_control_setpoint = true;
 
 _input_rc_sub.update(&_input_rc);
 
+if (_failure_detector_status_sub.update(&_failure_detector_status)) {
+	const bool motor_failure_active = _failure_detector_status.motor_failure_mask != 0
+					 || _failure_detector_status.motor_stop_mask != 0;
+
+	if (motor_failure_active != _motor_failure_active) {
+		_motor_failure_active = motor_failure_active;
+		reset_l1_adaptive_state();
+		PX4_WARN("motor-out mode %s: yaw control %s",
+			  _motor_failure_active ? "active" : "inactive",
+			  _motor_failure_active ? "released" : "restored");
+	}
+}
+
 if (_vehicle_status_sub.update(&_vehicle_status)) {
 _has_vehicle_status = true;
 }
@@ -322,9 +335,21 @@ for (int i = 0; i < 4; i++) {
 _controller_input.quat_body_to_ned[i] = _state.quat_body_to_ned[i];
 }
 
-_controller_input.target_yaw = _trajectory_output.yaw;
+// A quadrotor with one failed motor cannot independently control thrust and
+// all three moments. Follow the current heading and command no yaw moment so
+// the remaining motors can prioritize height, roll and pitch.
+_controller_input.target_yaw = _motor_failure_active
+			       ? yaw_from_quat_body_to_ned(_state.quat_body_to_ned)
+			       : _trajectory_output.yaw;
 _controller_input.target_yaw_rate = _trajectory_output.yaw_rate;
 _controller_input.target_yaw_accel = _trajectory_output.yaw_accel;
+
+if (_motor_failure_active) {
+	_controller_input.target_yaw_rate = 0.f;
+	_controller_input.target_yaw_accel = 0.f;
+}
+
+_controller_input.yaw_control_enabled = !_motor_failure_active;
 
 _controller_input.state_valid_for_control = _state_valid_for_control && _trajectory_output.valid;
 _controller_input.armed = _state.armed;
@@ -367,7 +392,7 @@ void L1AdaptiveControl::run_l1_adaptive_augmentation()
 		_geometric_output.thrust_newton,
 		_geometric_output.moment_newton_meter[0],
 		_geometric_output.moment_newton_meter[1],
-		_geometric_output.moment_newton_meter[2]
+		_motor_failure_active ? 0.f : _geometric_output.moment_newton_meter[2]
 	};
 
 	if (!_l1_state.initialized) {
@@ -515,6 +540,12 @@ void L1AdaptiveControl::run_l1_adaptive_augmentation()
 		_l1_state.lpf1_prev[i] = lpf1[i];
 		_l1_state.lpf2_prev[i] = lpf2[i];
 		_combined_thrust_moment[i] = baseline_thrust_moment[i] + _l1_output_thrust_moment[i];
+	}
+
+	if (_motor_failure_active) {
+		_l1_output_thrust_moment[3] = 0.f;
+		_l1_state.adaptive_thrust_moment_prev[3] = 0.f;
+		_combined_thrust_moment[3] = 0.f;
 	}
 
 	sigma_unmatched[0] = math::constrain(sigma_unmatched[0], -MAX_L1_THRUST_N, MAX_L1_THRUST_N);

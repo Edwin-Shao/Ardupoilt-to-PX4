@@ -314,6 +314,14 @@ VEHICLE_MASS_KG * (input.target_acceleration_ned[2] - GRAVITY_MSS)
 - KP_Z * output.position_error_ned[2]
 - KV_Z * output.velocity_error_ned[2];
 
+if (!input.yaw_control_enabled) {
+// A single-motor-out quadrotor cannot reliably hold horizontal position
+// during the spin-up transient. Keep the desired thrust axis vertical and
+// prioritize altitude plus reduced-attitude stabilization.
+output.target_force_ned[0] = 0.f;
+output.target_force_ned[1] = 0.f;
+}
+
 float R[3][3]{};
 quat_to_rotation_matrix_body_to_ned(input.quat_body_to_ned, R);
 get_matrix_column(R, 2, output.body_z_axis_ned);
@@ -324,7 +332,9 @@ _last_output = output;
 return true;
 }
 
-output.thrust_newton = -dot3(output.target_force_ned, output.body_z_axis_ned);
+output.thrust_newton = input.yaw_control_enabled
+	? -dot3(output.target_force_ned, output.body_z_axis_ned)
+	: sqrtf(dot3(output.target_force_ned, output.target_force_ned));
 
 output.acceleration_error_ned[0] =
 -output.body_z_axis_ned[0] * output.thrust_newton / VEHICLE_MASS_KG
@@ -573,6 +583,24 @@ for (int i = 0; i < 3; i++) {
 output.angular_velocity_error[i] = input.angular_velocity_body[i] - RT_Rd_omega_d[i];
 }
 
+if (!input.yaw_control_enabled) {
+// Reduced-attitude error: align the current thrust axis with the desired
+// thrust axis while leaving rotation about that axis unconstrained.
+float reduced_rotation_error_ned[3]{};
+cross3(output.desired_body_z_axis_ned, output.body_z_axis_ned, reduced_rotation_error_ned);
+
+for (int i = 0; i < 3; i++) {
+output.rotation_error[i] =
+R[0][i] * reduced_rotation_error_ned[0]
++ R[1][i] * reduced_rotation_error_ned[1]
++ R[2][i] * reduced_rotation_error_ned[2];
+}
+
+output.angular_velocity_error[0] = input.angular_velocity_body[0];
+output.angular_velocity_error[1] = input.angular_velocity_body[1];
+output.angular_velocity_error[2] = 0.f;
+}
+
 output.pd_moment_newton_meter[0] =
 -KR_X * output.rotation_error[0]
 -KO_X * output.angular_velocity_error[0];
@@ -582,8 +610,9 @@ output.pd_moment_newton_meter[1] =
 -KO_Y * output.angular_velocity_error[1];
 
 output.pd_moment_newton_meter[2] =
--KR_Z * output.rotation_error[2]
--KO_Z * output.angular_velocity_error[2];
+input.yaw_control_enabled
+? -KR_Z * output.rotation_error[2] - KO_Z * output.angular_velocity_error[2]
+: 0.f;
 
 float omega_hat[3][3]{};
 float omega_hat_rt_rd_omega_d[3]{};
@@ -613,6 +642,16 @@ output.moment_newton_meter[i] =
 output.pd_moment_newton_meter[i]
 + output.feedforward_moment_newton_meter[i]
 + output.gyro_moment_newton_meter[i];
+}
+
+if (!input.yaw_control_enabled) {
+for (int i = 0; i < 3; i++) {
+output.feedforward_moment_newton_meter[i] = 0.f;
+}
+
+output.moment_newton_meter[0] = output.pd_moment_newton_meter[0] + output.gyro_moment_newton_meter[0];
+output.moment_newton_meter[1] = output.pd_moment_newton_meter[1] + output.gyro_moment_newton_meter[1];
+output.moment_newton_meter[2] = 0.f;
 }
 
 output.valid = output_is_finite(output) && output.thrust_newton > 0.f;
