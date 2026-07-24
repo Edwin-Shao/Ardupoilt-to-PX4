@@ -33,6 +33,9 @@ static constexpr float MAX_L1_THRUST_N = VEHICLE_MASS_KG * GRAVITY_MSS * 0.35f;
 static constexpr float MAX_L1_ROLL_PITCH_MOMENT_NM = 0.35f;
 static constexpr float MAX_L1_YAW_MOMENT_NM = 0.20f;
 static constexpr hrt_abstime MANUAL_CONTROL_TIMEOUT_US = 500000;
+static constexpr float MOTOR_FAILURE_SWITCH_LOW = 0.25f;
+static constexpr float MOTOR_FAILURE_SWITCH_HIGH = 0.5f;
+static constexpr uint8_t FAILED_MOTOR_INSTANCE = 1;
 
 float dot3(const float a[3], const float b[3])
 {
@@ -137,6 +140,7 @@ perf_count(_loop_interval_perf);
 
 update_subscriptions();
 update_internal_state();
+update_manual_motor_failure_switch();
 
 apply_trajectory_command();
 update_trajectory_input();
@@ -312,6 +316,64 @@ void L1AdaptiveControl::update_manual_height_control_input()
 	if (joystick_valid) {
 		_manual_height_stick = math::constrain(_manual_control_setpoint.throttle, -1.0f, 1.0f);
 		_manual_height_control_valid = true;
+	}
+}
+
+void L1AdaptiveControl::publish_motor_failure_command(uint8_t failure_type)
+{
+	vehicle_command_s command{};
+	command.timestamp = hrt_absolute_time();
+	command.command = vehicle_command_s::VEHICLE_CMD_INJECT_FAILURE;
+	command.param1 = static_cast<float>(vehicle_command_s::FAILURE_UNIT_SYSTEM_MOTOR);
+	command.param2 = static_cast<float>(failure_type);
+	command.param3 = static_cast<float>(FAILED_MOTOR_INSTANCE);
+	_vehicle_command_pub.publish(command);
+}
+
+void L1AdaptiveControl::update_manual_motor_failure_switch()
+{
+	const hrt_abstime now_us = hrt_absolute_time();
+	const bool input_valid = _has_manual_control_setpoint
+				 && _manual_control_setpoint.valid
+				 && PX4_ISFINITE(_manual_control_setpoint.aux1)
+				 && now_us - _manual_control_setpoint.timestamp_sample <= MANUAL_CONTROL_TIMEOUT_US;
+
+	if (!input_valid) {
+		_motor_failure_switch_ready = false;
+		return;
+	}
+
+	const float aux1 = _manual_control_setpoint.aux1;
+
+	if (!_state.armed) {
+		if (_motor_failure_switch_high && aux1 < MOTOR_FAILURE_SWITCH_LOW) {
+			publish_motor_failure_command(vehicle_command_s::FAILURE_TYPE_OK);
+			_motor_failure_switch_high = false;
+		}
+
+		_motor_failure_switch_ready = false;
+		return;
+	}
+
+	if (!_motor_failure_switch_ready) {
+		if (aux1 < MOTOR_FAILURE_SWITCH_LOW) {
+			_motor_failure_switch_ready = true;
+			_motor_failure_switch_high = false;
+			PX4_INFO("AUX1 motor failure switch ready");
+		}
+
+		return;
+	}
+
+	if (!_motor_failure_switch_high && aux1 > MOTOR_FAILURE_SWITCH_HIGH) {
+		publish_motor_failure_command(vehicle_command_s::FAILURE_TYPE_OFF);
+		_motor_failure_switch_high = true;
+		PX4_WARN("Motor 1 failure requested by AUX1");
+
+	} else if (_motor_failure_switch_high && aux1 < MOTOR_FAILURE_SWITCH_LOW) {
+		publish_motor_failure_command(vehicle_command_s::FAILURE_TYPE_OK);
+		_motor_failure_switch_high = false;
+		PX4_INFO("Motor 1 restore requested by AUX1");
 	}
 }
 
