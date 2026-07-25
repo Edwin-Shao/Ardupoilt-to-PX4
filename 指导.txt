@@ -4,7 +4,8 @@ PX4 v1.17.0 L1 控制器最简操作指导
 
   /home/aim/px4_ws/PX4-Autopilot-v1.17.0
 
-本指导只用于 Gazebo Classic UI 仿真，不要用于真实飞机。
+本指导用于 Gazebo SITL 和拆除螺旋桨后的 SIH/HITL 测试，
+不要用于安装螺旋桨的真实飞机。
 
 
 一、先清理残留仿真
@@ -264,3 +265,158 @@ l1_keyboard_throttle start
 6. poll timeout 是错误吗？
 
 不一定。Gazebo UI 卡顿时可能出现 poll timeout。当前工作区已经把这类日志限频，避免它持续刷屏影响 pxh> 输入。只要飞机能起飞、status 正常、位置 z 接近 -1.0，就先不要把它当作 L1 控制器失败。
+
+
+十一、Pixhawk 6C Mini + SIH + jMAVSim + QGC
+
+这部分用于真实飞控和真实 RC 的硬件在环功能测试。SIH 在
+Pixhawk 内部计算动力学，jMAVSim 只显示模型，不负责物理仿真。
+测试时不要安装螺旋桨。
+
+工程目录：
+
+cd ~/PX4-Autopilot-v1.17.0-HITL
+
+1. 启动顺序
+
+先关闭 QGC。jMAVSim 必须先连接飞控 USB，否则 QGC 会占用串口。
+
+在第一个终端执行：
+
+cd ~/PX4-Autopilot-v1.17.0-HITL
+./Tools/simulation/jmavsim/jmavsim_run.sh -q -s \
+  -d /dev/serial/by-id/usb-Auterion_PX4_FMU_v6C.x_0-if00 \
+  -b 2000000 -o
+
+看到 jMAVSim 模型后保持该终端运行。
+
+再打开第二个终端执行：
+
+~/QGroundControl-x86_64.AppImage
+
+QGC 此时通过 jMAVSim 的 UDP 桥接连接飞控，不应直接占用飞控 USB。
+
+
+2. 当前已验证的 SIH 参数
+
+在 QGC 的 Analyze Tools -> MAVLink Console 中检查：
+
+param show SYS_AUTOSTART
+param show SYS_HITL
+param show SIH_MASS
+param show SIH_IXX
+param show SIH_IYY
+param show SIH_IZZ
+param show SIH_T_MAX
+param show SIH_T_TAU
+param show SYS_FAILURE_EN
+param show CA_FAILURE_MODE
+
+当前使用：
+
+SYS_AUTOSTART = 1100
+SYS_HITL = 2
+SIH_MASS = 2.0643
+SIH_IXX = 0.023
+SIH_IYY = 0.023
+SIH_IZZ = 0.0459
+SIH_T_MAX = 10.1219
+SIH_T_TAU = 0.02
+SYS_FAILURE_EN = 1
+CA_FAILURE_MODE = 1
+
+SIH_T_TAU 原默认值为 0.05。Gazebo x500 的电机上升/下降时间常数
+约为 0.0125/0.025，因此 SIH 使用 0.02 时 L1 悬停更稳定。
+
+SYS_FAILURE_EN 是 PX4 的故障注入总开关。它从 0 改为 1 后必须重启
+飞控，FailureInjector 才会加载新值。飞控重启后，jMAVSim 通常也要
+关闭并按第一步重新启动。
+
+
+3. 每次飞控重启后启动 L1
+
+开始前确认：
+
+- 油门最低：CH3 约 1087
+- 飞控锁定：CH5 约 1087
+- 失效拨杆高位安全：CH6 约 1940
+- jMAVSim 模型水平
+
+然后在 QGC MAVLink Console 中依次输入：
+
+mc_rate_control stop
+l1_adaptive_control start
+l1_adaptive_control rc_control enable
+
+检查：
+
+l1_adaptive_control status
+
+L1 模块不会在飞控重启后自动恢复运行，因此每次重启都要重新执行
+以上三条命令。
+
+
+4. 正常悬停测试
+
+1. CH6 保持高位安全。
+2. 将 CH5 拨到解锁位。
+3. 缓慢增加油门，升到约 1.5-2 米。
+4. 稳定悬停 5-10 秒。
+5. 如果正常，再进行电机失效测试。
+
+
+5. 单电机失效测试
+
+稳定悬停后，将 CH6 从高位拨到低位（约 1087），触发 Motor 1 off。
+
+预期现象：
+
+- Motor 1 停转。
+- 控制器放弃偏航控制，飞机会持续旋转。
+- 当前参数下可能缓慢下降。
+- 将 CH6 拨回高位会发送 Motor 1 恢复命令。
+
+如果姿态快速恶化，立即把 CH6 拨回高位，然后降低油门、降落并锁定。
+
+
+6. 结束顺序
+
+1. CH6 回到高位安全。
+2. 油门降到最低并落地。
+3. CH5 拨到锁定位。
+4. 关闭 QGC。
+5. 在 jMAVSim 终端按 Ctrl+C。
+
+
+7. 常见问题
+
+出现 Port busy：
+
+QGC 或旧的 jMAVSim 正在占用飞控 USB。关闭 QGC 和旧 jMAVSim，
+然后严格按“先 jMAVSim、后 QGC”的顺序启动。
+
+飞控重启后 QGC 没有飞机：
+
+USB 重新枚举后 jMAVSim 可能不会自动重连。关闭 jMAVSim，重新运行
+第一步命令，再打开 QGC。
+
+CH6 数值变化，但电机没有停转：
+
+检查：
+
+param show RC_MAP_AUX1
+param show SYS_FAILURE_EN
+param show CA_FAILURE_MODE
+
+应为：
+
+RC_MAP_AUX1 = 6
+SYS_FAILURE_EN = 1
+CA_FAILURE_MODE = 1
+
+如果刚把 SYS_FAILURE_EN 从 0 改为 1，必须重启飞控。
+
+模型翻倒后无法继续测试：
+
+先落地锁定并重启飞控，使 SIH 和 EKF 回到水平初始状态；随后重启
+jMAVSim，并重新执行启动 L1 的三条命令。

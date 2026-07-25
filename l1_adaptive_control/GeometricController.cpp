@@ -5,7 +5,7 @@
 namespace
 {
 
-static constexpr float VEHICLE_MASS_KG = 3.0f;
+static constexpr float VEHICLE_MASS_KG = 2.0643f;
 static constexpr float GRAVITY_MSS = 9.80665f;
 
 static constexpr float KP_X = 18.0f;
@@ -16,12 +16,12 @@ static constexpr float KV_X = 4.0f;
 static constexpr float KV_Y = 4.0f;
 static constexpr float KV_Z = 6.0f;
 
-static constexpr float KR_X = 5.4f;
-static constexpr float KR_Y = 5.4f;
+static constexpr float KR_X = 1.0f;
+static constexpr float KR_Y = 1.0f;
 static constexpr float KR_Z = 0.092f;
 
-static constexpr float KO_X = 0.6f;
-static constexpr float KO_Y = 0.6f;
+static constexpr float KO_X = 0.3f;
+static constexpr float KO_Y = 0.3f;
 static constexpr float KO_Z = 0.023f;
 
 static constexpr float JXX_KGM2 = 0.023f;

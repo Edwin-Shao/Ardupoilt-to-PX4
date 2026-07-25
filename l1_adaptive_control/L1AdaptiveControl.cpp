@@ -7,7 +7,7 @@
 namespace
 {
 
-static constexpr float VEHICLE_MASS_KG = 3.0f;
+static constexpr float VEHICLE_MASS_KG = 2.0643f;
 static constexpr float GRAVITY_MSS = 9.80665f;
 
 static constexpr float JXX_KGM2 = 0.023f;
