@@ -7,16 +7,16 @@
 namespace
 {
 
-static constexpr float VEHICLE_MASS_KG = 2.0643f;
+static constexpr float VEHICLE_MASS_KG = 0.62f;
 static constexpr float GRAVITY_MSS = 9.80665f;
 
-static constexpr float JXX_KGM2 = 0.023f;
-static constexpr float JYY_KGM2 = 0.023f;
-static constexpr float JZZ_KGM2 = 0.0459f;
+static constexpr float JXX_KGM2 = 0.002016f;
+static constexpr float JYY_KGM2 = 0.001827f;
+static constexpr float JZZ_KGM2 = 0.00322f;
 
-static constexpr float JINV_XX = 43.478f;
-static constexpr float JINV_YY = 43.478f;
-static constexpr float JINV_ZZ = 21.786f;
+static constexpr float JINV_XX = 496.03f;
+static constexpr float JINV_YY = 547.345f;
+static constexpr float JINV_ZZ = 310.559f;
 
 static constexpr bool L1_ENABLE = true;
 static constexpr float L1_AS_V = -5.0f;

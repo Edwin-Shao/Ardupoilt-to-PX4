@@ -5,28 +5,28 @@
 namespace
 {
 
-static constexpr float VEHICLE_MASS_KG = 2.0643f;
+static constexpr float VEHICLE_MASS_KG = 0.62f;
 static constexpr float GRAVITY_MSS = 9.80665f;
 
-static constexpr float KP_X = 18.0f;
-static constexpr float KP_Y = 18.0f;
-static constexpr float KP_Z = 27.6f;
+static constexpr float KP_X = 14.0f;
+static constexpr float KP_Y = 15.0f;
+static constexpr float KP_Z = 15.0f;
 
-static constexpr float KV_X = 4.0f;
-static constexpr float KV_Y = 4.0f;
-static constexpr float KV_Z = 6.0f;
+static constexpr float KV_X = 1.5f;
+static constexpr float KV_Y = 0.9f;
+static constexpr float KV_Z = 1.1f;
 
-static constexpr float KR_X = 1.0f;
-static constexpr float KR_Y = 1.0f;
-static constexpr float KR_Z = 0.092f;
+static constexpr float KR_X = 0.55f;
+static constexpr float KR_Y = 0.35f;
+static constexpr float KR_Z = 0.15f;
 
-static constexpr float KO_X = 0.3f;
-static constexpr float KO_Y = 0.3f;
-static constexpr float KO_Z = 0.023f;
+static constexpr float KO_X = 0.035f;
+static constexpr float KO_Y = 0.03f;
+static constexpr float KO_Z = 0.004f;
 
-static constexpr float JXX_KGM2 = 0.023f;
-static constexpr float JYY_KGM2 = 0.023f;
-static constexpr float JZZ_KGM2 = 0.0459f;
+static constexpr float JXX_KGM2 = 0.002016f;
+static constexpr float JYY_KGM2 = 0.001827f;
+static constexpr float JZZ_KGM2 = 0.00322f;
 
 float dot3(const float a[3], const float b[3])
 {

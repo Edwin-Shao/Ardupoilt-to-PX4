@@ -179,8 +179,6 @@ L1 Altitude Failure
   基于 Altitude；Motor 1 停转，横滚/俯仰摇杆控制倾角，
   油门控制升降，不保持水平位置，释放偏航。
 
-飞行模式不固定使用 CH6，具体拨杆和通道由 QGC 配置。
-
 测试顺序：
 
 1. 安全位置设置为 Position。
@@ -231,10 +229,69 @@ sitl 分支的 Pixhawk 6C Mini 快照：
 make -C ./PX4-Autopilot-v1.17.0 px4_fmu-v6c_default
 
 
+九、main/HITL 控制参数位置
+
+以下路径都相对于工作区根目录。main 和 HITL 当前使用相同参数值。
+
+机体质量、几何控制增益和惯量：
+
+./Ardupoilt-to-PX4/l1_adaptive_control/GeometricController.cpp:8-29
+
+VEHICLE_MASS_KG = 0.62
+KP = [14.0, 15.0, 15.0]
+KV = [1.5, 0.9, 1.1]
+KR = [0.55, 0.35, 0.15]
+KO = [0.035, 0.03, 0.004]
+J = [0.002016, 0.001827, 0.00322]
+
+L1 机体模型、滤波、电机和失效设置：
+
+./Ardupoilt-to-PX4/l1_adaptive_control/L1AdaptiveControl.cpp:10-46
+
+VEHICLE_MASS_KG = 0.62
+J = [0.002016, 0.001827, 0.00322]
+JINV = [496.03, 547.345, 310.559]
+L1_AS_V = -5.0
+L1_AS_OMEGA = -10.0
+L1_CUTOFF_Q1_THRUST = 10.0
+L1_CUTOFF_Q1_MOMENT = 10.0
+L1_CUTOFF_Q2_MOMENT = 2.0
+MOTOR_COMMAND_MAX = 100.0
+电机推力曲线系数 = 0.0009251、0.021145
+ROLL_ARM_M = 0.175
+PITCH_ARM_M = 0.131
+MAX_YAW_MOMENT_NM = 1.0
+MAX_L1_THRUST_N = 机体重量的 35%
+MAX_L1_ROLL_PITCH_MOMENT_NM = 0.35
+MAX_L1_YAW_MOMENT_NM = 0.20
+FAILED_MOTOR_INSTANCE = 1
+
+修改质量或惯量时必须同时修改上述两个 .cpp 文件。JINV_XX、JINV_YY、
+JINV_ZZ 分别等于三个惯量的倒数，不能作为独立参数随意调整。
+
+起飞、圆轨迹和手动高度参数：
+
+./Ardupoilt-to-PX4/l1_adaptive_control/TrajectoryGenerator.hpp:113-120
+
+TAKEOFF_HEIGHT_M、TAKEOFF_DURATION_S
+CIRCLE_RADIUS_M、CIRCLE_SPEED_M_S
+MANUAL_HEIGHT_DEADZONE、MANUAL_MAX_CLIMB_RATE_M_S
+MANUAL_MIN_HEIGHT_M、MANUAL_MAX_HEIGHT_M
+
+自动启动开关：
+
+./Ardupoilt-to-PX4/l1_adaptive_control/l1_adaptive_control_params.c:10
+
+L1_FAIL_EN = 1
+
+上述 constexpr 参数修改后必须重新编译并刷写固件。L1_FAIL_EN 是 PX4
+运行时参数，可以通过 QGC 或 param set 修改，不需要重新编译。
+
+
 ==================== 第二部分：排错与安全说明 ====================
 
 
-九、常见问题
+十、常见问题
 
 QGC 识别不到 Joystick：
 
@@ -266,7 +323,7 @@ SITL 传感器、EKF 和起飞功能正常时，这些通常是仿真环境提�
 因此旋转是预期现象。
 
 
-十、安全边界
+十一、安全边界
 
 - SITL 中可以使用 commander arm -f；真机禁止强制解锁。
 - SITL 专用故障保护设置不得直接复制到真机。
