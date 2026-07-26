@@ -4,6 +4,14 @@ This repository stores the custom PX4 module used to port the L1 adaptive geomet
 
 The repository name is currently `Ardupoilt-to-PX4`, but the intended project name is `ArduPilot-to-PX4`.
 
+## Branches
+
+- `main`: hardware firmware baseline and verified L1 failure flight modes.
+- `hitl`: Pixhawk 6C Mini SIH/jMAVSim hardware-in-the-loop setup.
+- `sitl`: Gazebo SITL, keyboard, QGC Joystick and simulated motor-failure
+  testing. This is the former `simulation` branch; its existing content and
+  history are preserved.
+
 ## References
 
 - L1Quad repository: <https://github.com/sigma-pi/L1Quad>
