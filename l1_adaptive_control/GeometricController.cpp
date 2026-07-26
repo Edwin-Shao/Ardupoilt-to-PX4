@@ -314,7 +314,17 @@ VEHICLE_MASS_KG * (input.target_acceleration_ned[2] - GRAVITY_MSS)
 - KP_Z * output.position_error_ned[2]
 - KV_Z * output.velocity_error_ned[2];
 
-if (!input.yaw_control_enabled) {
+if (input.manual_tilt_enabled) {
+const float vertical_force_ned = output.target_force_ned[2];
+const float inverse_vertical_axis =
+1.f / fmaxf(input.manual_desired_body_z_axis_ned[2], 0.5f);
+
+for (int i = 0; i < 3; i++) {
+output.target_force_ned[i] =
+input.manual_desired_body_z_axis_ned[i] * vertical_force_ned * inverse_vertical_axis;
+}
+
+} else if (!input.yaw_control_enabled) {
 // A single-motor-out quadrotor cannot reliably hold horizontal position
 // during the spin-up transient. Keep the desired thrust axis vertical and
 // prioritize altitude plus reduced-attitude stabilization.
@@ -364,6 +374,12 @@ output.target_force_dot_ned[2] =
 -KV_Z * output.acceleration_error_ned[2]
 + VEHICLE_MASS_KG * input.target_jerk_ned[2];
 
+if (input.manual_tilt_enabled) {
+output.target_force_dot_ned[0] = 0.f;
+output.target_force_dot_ned[1] = 0.f;
+output.target_force_dot_ned[2] = 0.f;
+}
+
 const float omega_cross_e3[3] = {
 input.angular_velocity_body[1],
 -input.angular_velocity_body[0],
@@ -374,6 +390,10 @@ mat_vec_mul(R, omega_cross_e3, output.body_z_axis_dot_ned);
 output.target_thrust_dot_newton_s =
 -dot3(output.target_force_dot_ned, output.body_z_axis_ned)
 -dot3(output.target_force_ned, output.body_z_axis_dot_ned);
+
+if (input.manual_tilt_enabled) {
+output.target_thrust_dot_newton_s = 0.f;
+}
 
 output.jerk_error_ned[0] =
 -output.body_z_axis_ned[0] * output.target_thrust_dot_newton_s / VEHICLE_MASS_KG
@@ -404,6 +424,12 @@ output.target_force_ddot_ned[2] =
 -KP_Z * output.acceleration_error_ned[2]
 -KV_Z * output.jerk_error_ned[2]
 + VEHICLE_MASS_KG * input.target_snap_ned[2];
+
+if (input.manual_tilt_enabled) {
+output.target_force_ddot_ned[0] = 0.f;
+output.target_force_ddot_ned[1] = 0.f;
+output.target_force_ddot_ned[2] = 0.f;
+}
 
 const float minus_target_force[3] = {
 -output.target_force_ned[0],

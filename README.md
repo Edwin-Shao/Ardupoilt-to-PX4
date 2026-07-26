@@ -1,300 +1,62 @@
-# ArduPilot L1Quad to PX4 v1.17.0 Port
+# L1Quad Controller for PX4 v1.17.0
 
-This repository stores the custom PX4 module used to port the L1 adaptive geometric controller from the L1Quad ArduPilot implementation into PX4 v1.17.0.
+This repository contains the PX4 port of the L1 adaptive geometric controller
+from [L1Quad](https://github.com/sigma-pi/L1Quad). It is intentionally kept
+separate from the full PX4 source tree.
 
-The repository name is currently `Ardupoilt-to-PX4`, but the intended project name is `ArduPilot-to-PX4`.
+## Branches
 
-## References
+- `main`: hardware firmware baseline and the verified L1 failure flight modes.
+- `hitl`: Pixhawk 6C Mini SIH/jMAVSim hardware-in-the-loop setup.
+- `sitl`: Gazebo SITL setup, renamed from `simulation`; all existing SITL,
+  keyboard, QGC Joystick and motor-failure testing remains available.
 
-- L1Quad repository: <https://github.com/sigma-pi/L1Quad>
-- Original ArduPilot controller file: <https://github.com/sigma-pi/L1Quad/blob/main/L1AC_customization/ArduCopter/mode_adaptive.cpp>
-- PX4 target version: `v1.17.0`
+## Included Features
 
-## What This Port Does
-
-The original ArduPilot implementation directly computes motor PWM outputs. This PX4 port does not directly write PWM. Instead, it publishes PX4 control setpoints:
-
-```text
-PX4 estimator / simulated sensors
-        -> l1_adaptive_control
-        -> trajectory generator
-        -> geometric controller
-        -> L1 adaptive augmentation
-        -> vehicle_thrust_setpoint / vehicle_torque_setpoint
-        -> PX4 control_allocator
-        -> actuator_motors / actuator_outputs
-```
-
-The current module includes:
-
-- trajectory generation for takeoff and hold;
-- geometric position and attitude control;
-- L1 adaptive augmentation;
-- PX4 `vehicle_thrust_setpoint` and `vehicle_torque_setpoint` publication;
-- optional RC throttle height takeover for the hold trajectory;
-- a keyboard throttle publisher for SITL testing of `rc_control`;
-- safety gates for invalid state, disarmed state, and failsafe;
-- SIH validation using `sihsim_quadx`.
+- L1 adaptive geometric controller for PX4 v1.17.0.
+- Takeoff, hover and trajectory control.
+- RC, QGC Joystick and SITL keyboard input.
+- Motor 1 failure injection with yaw control released.
+- `L1 Failure`: Position-based failure mode that holds position and altitude.
+- `L1 Altitude Failure`: Altitude-based failure mode with manual roll/pitch and
+  throttle-controlled climb rate.
+- PX4 integration patch and concise operating guide.
 
 ## Repository Layout
 
 ```text
-l1_adaptive_control/
-  CMakeLists.txt
-  Kconfig
-  L1AdaptiveControl.cpp
-  L1AdaptiveControl.hpp
-  GeometricController.cpp
-  GeometricController.hpp
-  TrajectoryGenerator.cpp
-  TrajectoryGenerator.hpp
-l1_keyboard_throttle/
-  CMakeLists.txt
-  Kconfig
-  L1KeyboardThrottle.cpp
-patches/
-  px4-v1.17.0-gazebo-classic-ctrl-c-cleanup.patch
-指导.txt
+l1_adaptive_control/       L1 controller module
+l1_keyboard_throttle/      SITL keyboard input
+patches/                   PX4 v1.17.0 integration patches
+scripts/                   setup helpers
+PX4-Autopilot/             PX4 source submodule when present on the branch
+指导.txt                    SITL and HITL operating guide
 ```
 
-This repository is not a full PX4 fork. It contains the custom module that should be copied into a PX4 v1.17.0 checkout.
-The `patches/` directory stores small PX4-side integration patches that are needed for this workspace but should not require pushing a full PX4 fork.
+## Use With PX4
 
-## Reproduce From A Fresh Checkout
-
-### 1. Clone PX4 v1.17.0
+Clone the branch required for the test:
 
 ```bash
-mkdir -p ~/px4_ws
-cd ~/px4_ws
-git clone --recursive https://github.com/PX4/PX4-Autopilot.git PX4-Autopilot-v1.17.0
-cd PX4-Autopilot-v1.17.0
-git checkout v1.17.0
-git submodule update --init --recursive
+git clone --recurse-submodules -b sitl https://github.com/Edwin-Shao/Ardupoilt-to-PX4.git
 ```
 
-Install PX4 dependencies using the normal PX4 setup for your OS before building.
+For HITL, replace `sitl` with `hitl`. Copy the two modules into
+`PX4-Autopilot/src/modules/`, enable them in the target board configuration,
+then apply the matching patch from `patches/`.
 
-### 2. Clone This Module Repository
-
-```bash
-cd ~/px4_ws
-git clone git@github.com:ssybh2/Ardupoilt-to-PX4.git
-```
-
-If SSH access is not configured, use HTTPS instead:
-
-```bash
-git clone https://github.com/ssybh2/Ardupoilt-to-PX4.git
-```
-
-### 3. Copy The Module Into PX4
-
-```bash
-cd ~/px4_ws/PX4-Autopilot-v1.17.0
-mkdir -p src/modules/l1_adaptive_control
-cp -r ../Ardupoilt-to-PX4/l1_adaptive_control/* src/modules/l1_adaptive_control/
-mkdir -p src/modules/l1_keyboard_throttle
-cp -r ../Ardupoilt-to-PX4/l1_keyboard_throttle/* src/modules/l1_keyboard_throttle/
-```
-
-### 4. Enable The Module In The SITL Board Config
-
-Open:
+The current Ubuntu workspaces are:
 
 ```text
-boards/px4/sitl/default.px4board
+SITL: /home/edwin/PX4-Autopilot-v1.17.0
+HITL: /home/edwin/PX4-Autopilot-v1.17.0-HITL
 ```
 
-Add:
+See [`指导.txt`](指导.txt) for the tested commands, jMAVSim startup order,
+flight-mode configuration and troubleshooting.
 
-```text
-CONFIG_MODULES_L1_ADAPTIVE_CONTROL=y
-CONFIG_MODULES_L1_KEYBOARD_THROTTLE=y
-```
+## Safety
 
-If your PX4 tree does not automatically expose the module in Kconfig, run:
-
-```bash
-make px4_sitl_default boardconfig
-```
-
-Then check that `modules/l1_adaptive_control` is enabled.
-
-### 4.1. Apply The Gazebo Classic Ctrl-C Cleanup Patch
-
-This workspace uses a small PX4 `sitl_run.sh` patch so that pressing `Ctrl+C`
-after `PX4 Exiting...` also cleans up `gzserver` and `gzclient`.
-
-```bash
-cd ~/px4_ws/PX4-Autopilot-v1.17.0
-git apply ../Ardupoilt-to-PX4/patches/px4-v1.17.0-gazebo-classic-ctrl-c-cleanup.patch
-```
-
-### 5. Build PX4 SITL
-
-```bash
-cd ~/px4_ws/PX4-Autopilot-v1.17.0
-make px4_sitl_default
-```
-
-Expected result: the build completes and links `bin/px4`.
-
-## No-UI SIH Validation
-
-Gazebo UI is not required for the basic validation. The current verified path uses PX4's built-in SIH simulator:
-
-```bash
-cd ~/px4_ws/PX4-Autopilot-v1.17.0
-make px4_sitl sihsim_quadx
-```
-
-In the PX4 shell, first verify that estimator topics exist:
-
-```sh
-listener vehicle_attitude 1
-listener vehicle_local_position 1
-listener vehicle_angular_velocity 1
-listener vehicle_status 1
-```
-
-You should see valid attitude, local position, and angular velocity data.
-
-## Run The L1 Controller In SIH
-
-The current module publishes the same PX4 thrust and torque setpoint topics as the default multicopter rate controller. For this test, stop the default rate controller before starting the L1 module:
-
-```sh
-mc_rate_control stop
-l1_adaptive_control start
-commander arm
-```
-
-After a few seconds, inspect the L1 module:
-
-```sh
-l1_adaptive_control status
-```
-
-Expected output includes:
-
-```text
-state_valid_for_control=1
-trajectory_valid=1
-geometric_output_valid=1
-l1_update_executed=1
-publish_active=1
-publish_count > 0
-```
-
-To enable the optional keyboard-driven height takeover test:
-
-```sh
-l1_adaptive_control rc_control enable
-l1_keyboard_throttle start
-```
-
-Keyboard controls:
-
-```text
-w  throttle += 0.2
-s  throttle -= 0.2
-0  throttle = 0 and disable l1_adaptive_control rc_control
-q  throttle = 0 and quit
-```
-
-The keyboard tool publishes `manual_control_setpoint.throttle` in `[-1, 1]`.
-It does not publish thrust setpoints directly; height changes still flow through
-the L1 trajectory generator and geometric controller.
-
-Inspect the PX4 setpoint topics:
-
-```sh
-listener vehicle_thrust_setpoint 1
-listener vehicle_torque_setpoint 1
-listener actuator_motors 1
-listener vehicle_local_position 1
-listener vehicle_attitude 1
-```
-
-Typical successful SIH output looks like:
-
-```text
-vehicle_thrust_setpoint.xyz = [0.00000, 0.00000, -0.50969]
-vehicle_torque_setpoint.xyz = [0.01960, 0.00871, 0.00468]
-actuator_motors.control = [0.50666, 0.52207, 0.52504, 0.48499]
-vehicle_attitude ~= Roll -1.2 deg, Pitch -0.8 deg, Yaw -1.0 deg
-vehicle_local_position.z ~= -1.2 m
-```
-
-This means the L1 controller is publishing PX4-compatible control setpoints, the control allocator is consuming them, and SIH is responding.
-
-## One-Shot Test Command
-
-You can run the same validation non-interactively:
-
-```bash
-cd ~/px4_ws/PX4-Autopilot-v1.17.0
-
-timeout 90s bash -lc '(sleep 7; \
-echo "mc_rate_control stop"; \
-echo "l1_adaptive_control start"; \
-sleep 1; \
-echo "commander arm"; \
-sleep 8; \
-echo "l1_adaptive_control status"; \
-echo "listener vehicle_thrust_setpoint 1"; \
-echo "listener vehicle_torque_setpoint 1"; \
-echo "listener actuator_motors 1"; \
-echo "listener vehicle_local_position 1"; \
-echo "listener vehicle_attitude 1"; \
-echo "commander disarm"; \
-echo "l1_adaptive_control stop"; \
-echo "shutdown") | make px4_sitl sihsim_quadx'
-```
-
-## Notes And Limitations
-
-- This is still a research/control-port module, not a production flight mode.
-- Do not test on real hardware without additional safety review, parameterization, and actuator scaling validation.
-- The module currently uses hard-coded SITL-style mass, inertia, gains, and setpoint normalization constants.
-- The test intentionally stops `mc_rate_control` because both controllers publish `vehicle_thrust_setpoint` and `vehicle_torque_setpoint`.
-- A cleaner production integration should give the L1 module explicit controller ownership through startup/airframe configuration instead of manually stopping `mc_rate_control`.
-- Gazebo GUI is optional for this validation. On some ARM desktop systems, Gazebo Classic may fail in OGRE/OpenGL before PX4 starts. Use `sihsim_quadx` for no-UI validation.
-
-## Development Commands
-
-Build:
-
-```bash
-make px4_sitl_default
-```
-
-Run no-UI SIH:
-
-```bash
-make px4_sitl sihsim_quadx
-```
-
-Start and stop the module:
-
-```sh
-l1_adaptive_control start
-l1_adaptive_control status
-l1_adaptive_control stop
-```
-
-
-## Ubuntu 24.04 / Gazebo Harmonic (Current SITL Setup)
-
-The official [PX4-Autopilot v1.17.0](https://github.com/PX4/PX4-Autopilot/tree/v1.17.0) source is linked as the `PX4-Autopilot` submodule. The repository also includes the Harmonic motor-failure plugin and the minimal integration patches used by the current Ubuntu 24.04 setup.
-
-```bash
-git clone --recurse-submodules https://github.com/Edwin-Shao/Ardupoilt-to-PX4.git
-cd Ardupoilt-to-PX4
-./scripts/install_sitl.sh
-cd PX4-Autopilot
-make px4_sitl gz_x500
-```
-
-The L1 controller accepts both PX4 `input_rc` and QGroundControl Joystick input. Valid RC input has priority; Joystick/manual control is the fallback. The Gazebo motor-failure plugin and keyboard module are SITL-only; the core `l1_adaptive_control` module is also the basis for later hardware builds.
+This is research flight-control software. Complete SITL and propeller-free
+HITL tests before real flight, and always switch into a failure mode only after
+a stable normal takeoff.
