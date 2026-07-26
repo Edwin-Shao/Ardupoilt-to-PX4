@@ -298,7 +298,7 @@ cd ~/PX4-Autopilot-v1.17.0-HITL
 QGC 此时通过 jMAVSim 的 UDP 桥接连接飞控，不应直接占用飞控 USB。
 
 
-2. 当前已验证的 SIH 参数
+2. hitl 分支的原 L1Quad 真机参数
 
 在 QGC 的 Analyze Tools -> MAVLink Console 中检查：
 
@@ -317,17 +317,25 @@ param show CA_FAILURE_MODE
 
 SYS_AUTOSTART = 1100
 SYS_HITL = 2
-SIH_MASS = 2.0643
-SIH_IXX = 0.023
-SIH_IYY = 0.023
-SIH_IZZ = 0.0459
-SIH_T_MAX = 10.1219
+SIH_MASS = 0.62
+SIH_IXX = 0.002016
+SIH_IYY = 0.001827
+SIH_IZZ = 0.00322
+SIH_T_MAX = 3.0400615
 SIH_T_TAU = 0.02
 SYS_FAILURE_EN = 1
 CA_FAILURE_MODE = 1
 
-SIH_T_TAU 原默认值为 0.05。Gazebo x500 的电机上升/下降时间常数
-约为 0.0125/0.025，因此 SIH 使用 0.02 时 L1 悬停更稳定。
+质量和惯量来自原 L1Quad 的 REAL_OR_SITL=1 配置。SIH_T_MAX 按
+原控制器使用的 2:1 最大推重比由质量换算；SIH_T_TAU 继续使用
+已经在 HITL 中验证稳定的 0.02。
+
+几何控制器同时恢复原 L1Quad 真机增益：
+
+KP = [14.0, 15.0, 15.0]
+KV = [1.5, 0.9, 1.1]
+KR = [0.55, 0.35, 0.15]
+KO = [0.035, 0.03, 0.004]
 
 SYS_FAILURE_EN 是 PX4 的故障注入总开关。它从 0 改为 1 后必须重启
 飞控，FailureInjector 才会加载新值。飞控重启后，jMAVSim 通常也要

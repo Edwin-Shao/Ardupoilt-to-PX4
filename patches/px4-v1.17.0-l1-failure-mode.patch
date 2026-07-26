@@ -151,7 +151,7 @@
  	"Follow Target",
 --- a/ROMFS/px4fmu_common/init.d/rc.mc_apps
 +++ b/ROMFS/px4fmu_common/init.d/rc.mc_apps
-@@ -15,6 +15,13 @@
+@@ -15,6 +15,19 @@
  #
  mc_rate_control start
  
@@ -159,6 +159,12 @@
 +then
 +	param set -s SYS_FAILURE_EN 1
 +	param set -s CA_FAILURE_MODE 1
++	param set -s SIH_MASS 0.62
++	param set -s SIH_IXX 0.002016
++	param set -s SIH_IYY 0.001827
++	param set -s SIH_IZZ 0.00322
++	param set -s SIH_T_MAX 3.0400615
++	param set -s SIH_T_TAU 0.02
 +	l1_adaptive_control start
 +fi
 +
