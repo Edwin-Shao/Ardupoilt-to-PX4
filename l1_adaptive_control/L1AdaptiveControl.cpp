@@ -25,8 +25,18 @@ static constexpr float L1_CUTOFF_Q1_THRUST = 10.0f;
 static constexpr float L1_CUTOFF_Q1_MOMENT = 10.0f;
 static constexpr float L1_CUTOFF_Q2_MOMENT = 2.0f;
 
-static constexpr float MAX_THRUST_N = VEHICLE_MASS_KG * GRAVITY_MSS * 2.0f;
-static constexpr float MAX_ROLL_PITCH_MOMENT_NM = 2.0f;
+// Original L1Quad real-airframe motor curve:
+// thrust [N] = 0.0009251 * command^2 + 0.021145 * command,
+// where command spans 0..100 for PWM 1000..2000 us.
+static constexpr float MOTOR_COMMAND_MAX = 100.0f;
+static constexpr float MAX_MOTOR_THRUST_N =
+	0.0009251f * MOTOR_COMMAND_MAX * MOTOR_COMMAND_MAX
+	+ 0.021145f * MOTOR_COMMAND_MAX;
+static constexpr float MAX_THRUST_N = 4.0f * MAX_MOTOR_THRUST_N;
+static constexpr float ROLL_ARM_M = 0.175f;
+static constexpr float PITCH_ARM_M = 0.131f;
+static constexpr float MAX_ROLL_MOMENT_NM = ROLL_ARM_M * MAX_MOTOR_THRUST_N;
+static constexpr float MAX_PITCH_MOMENT_NM = PITCH_ARM_M * MAX_MOTOR_THRUST_N;
 static constexpr float MAX_YAW_MOMENT_NM = 1.0f;
 
 static constexpr float MAX_L1_THRUST_N = VEHICLE_MASS_KG * GRAVITY_MSS * 0.35f;
@@ -171,6 +181,10 @@ _has_local_position = true;
 
 if (_vehicle_attitude_sub.update(&_vehicle_attitude)) {
 _has_attitude = true;
+}
+
+if (_vehicle_attitude_setpoint_sub.update(&_vehicle_attitude_setpoint)) {
+_has_attitude_setpoint = true;
 }
 
 if (_vehicle_angular_velocity_sub.update(&_vehicle_angular_velocity)) {
@@ -327,13 +341,19 @@ void L1AdaptiveControl::publish_motor_failure_command(uint8_t failure_type)
 
 void L1AdaptiveControl::update_failure_mode()
 {
-	const bool selected = _state.nav_state == vehicle_status_s::NAVIGATION_STATE_L1_FAILURE;
+	const bool position_selected = _state.nav_state == vehicle_status_s::NAVIGATION_STATE_L1_FAILURE;
+	const bool altitude_selected = _state.nav_state == vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT;
+	const bool selected = position_selected || altitude_selected;
+	const bool mode_changed = selected != _failure_mode_selected
+				  || altitude_selected != _altitude_failure_mode_selected;
 
-	if (selected != _failure_mode_selected) {
+	if (mode_changed) {
 		_failure_mode_selected = selected;
+		_altitude_failure_mode_selected = altitude_selected;
 		_trajectory_generator.reset();
 		reset_l1_adaptive_state();
-		PX4_WARN("L1 failure mode %s", selected ? "selected" : "left");
+		PX4_WARN("L1 failure mode %s",
+			  !selected ? "left" : (altitude_selected ? "altitude selected" : "position selected"));
 	}
 
 	if (_failure_mode_selected && _state.armed && !_failure_commanded) {
@@ -359,6 +379,10 @@ void L1AdaptiveControl::update_failure_mode()
 void L1AdaptiveControl::update_controller_input()
 {
 _controller_input.timestamp_us = _state.timestamp_us;
+_controller_input.manual_tilt_enabled = false;
+_controller_input.manual_desired_body_z_axis_ned[0] = 0.f;
+_controller_input.manual_desired_body_z_axis_ned[1] = 0.f;
+_controller_input.manual_desired_body_z_axis_ned[2] = 1.f;
 
 for (int i = 0; i < 3; i++) {
 _controller_input.position_ned[i] = _state.position_ned[i];
@@ -376,21 +400,41 @@ for (int i = 0; i < 4; i++) {
 _controller_input.quat_body_to_ned[i] = _state.quat_body_to_ned[i];
 }
 
+if (_altitude_failure_mode_selected && _has_attitude_setpoint) {
+	const hrt_abstime now_us = hrt_absolute_time();
+	const bool attitude_setpoint_valid =
+		now_us - _vehicle_attitude_setpoint.timestamp <= MANUAL_CONTROL_TIMEOUT_US
+		&& PX4_ISFINITE(_vehicle_attitude_setpoint.q_d[0])
+		&& PX4_ISFINITE(_vehicle_attitude_setpoint.q_d[1])
+		&& PX4_ISFINITE(_vehicle_attitude_setpoint.q_d[2])
+		&& PX4_ISFINITE(_vehicle_attitude_setpoint.q_d[3]);
+
+	if (attitude_setpoint_valid) {
+		float manual_rotation[3][3]{};
+		quat_to_rotation_matrix_body_to_ned(_vehicle_attitude_setpoint.q_d, manual_rotation);
+		get_matrix_column(manual_rotation, 2, _controller_input.manual_desired_body_z_axis_ned);
+
+		if (_controller_input.manual_desired_body_z_axis_ned[2] > 0.5f) {
+			_controller_input.manual_tilt_enabled = true;
+		}
+	}
+}
+
 // A quadrotor with one failed motor cannot independently control thrust and
-// all three moments. Follow the current heading and command no yaw moment so
-// the remaining motors can prioritize height, roll and pitch.
-_controller_input.target_yaw = _motor_failure_active
+// all three moments. Release yaw as soon as either failure mode is selected
+// so the remaining motors can prioritize thrust, roll and pitch.
+_controller_input.target_yaw = _failure_mode_selected
 			       ? yaw_from_quat_body_to_ned(_state.quat_body_to_ned)
 			       : _trajectory_output.yaw;
 _controller_input.target_yaw_rate = _trajectory_output.yaw_rate;
 _controller_input.target_yaw_accel = _trajectory_output.yaw_accel;
 
-if (_motor_failure_active) {
+if (_failure_mode_selected) {
 	_controller_input.target_yaw_rate = 0.f;
 	_controller_input.target_yaw_accel = 0.f;
 }
 
-_controller_input.yaw_control_enabled = !_motor_failure_active;
+_controller_input.yaw_control_enabled = !_failure_mode_selected;
 
 _controller_input.state_valid_for_control = _state_valid_for_control && _trajectory_output.valid;
 _controller_input.armed = _state.armed;
@@ -434,7 +478,7 @@ void L1AdaptiveControl::run_l1_adaptive_augmentation()
 		_geometric_output.thrust_newton,
 		_geometric_output.moment_newton_meter[0],
 		_geometric_output.moment_newton_meter[1],
-		_motor_failure_active ? 0.f : _geometric_output.moment_newton_meter[2]
+		_failure_mode_selected ? 0.f : _geometric_output.moment_newton_meter[2]
 	};
 
 	if (!_l1_state.initialized) {
@@ -584,7 +628,7 @@ void L1AdaptiveControl::run_l1_adaptive_augmentation()
 		_combined_thrust_moment[i] = baseline_thrust_moment[i] + _l1_output_thrust_moment[i];
 	}
 
-	if (_motor_failure_active) {
+	if (_failure_mode_selected) {
 		_l1_output_thrust_moment[3] = 0.f;
 		_l1_state.adaptive_thrust_moment_prev[3] = 0.f;
 		_combined_thrust_moment[3] = 0.f;
@@ -636,8 +680,8 @@ void L1AdaptiveControl::publish_control_setpoints()
 	vehicle_torque_setpoint_s torque_sp{};
 	torque_sp.timestamp = thrust_sp.timestamp;
 	torque_sp.timestamp_sample = thrust_sp.timestamp_sample;
-	torque_sp.xyz[0] = math::constrain(_combined_thrust_moment[1] / MAX_ROLL_PITCH_MOMENT_NM, -1.f, 1.f);
-	torque_sp.xyz[1] = math::constrain(_combined_thrust_moment[2] / MAX_ROLL_PITCH_MOMENT_NM, -1.f, 1.f);
+	torque_sp.xyz[0] = math::constrain(_combined_thrust_moment[1] / MAX_ROLL_MOMENT_NM, -1.f, 1.f);
+	torque_sp.xyz[1] = math::constrain(_combined_thrust_moment[2] / MAX_PITCH_MOMENT_NM, -1.f, 1.f);
 	torque_sp.xyz[2] = math::constrain(_combined_thrust_moment[3] / MAX_YAW_MOMENT_NM, -1.f, 1.f);
 
 	_vehicle_thrust_setpoint_pub.publish(thrust_sp);

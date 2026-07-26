@@ -16,6 +16,7 @@
 #include <uORB/Subscription.hpp>
 #include <uORB/topics/vehicle_local_position.h>
 #include <uORB/topics/vehicle_attitude.h>
+#include <uORB/topics/vehicle_attitude_setpoint.h>
 #include <uORB/topics/vehicle_angular_velocity.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/input_rc.h>
@@ -114,6 +115,7 @@ void print_debug_info();
 
 uORB::Subscription _vehicle_local_position_sub{ORB_ID(vehicle_local_position)};
 uORB::Subscription _vehicle_attitude_sub{ORB_ID(vehicle_attitude)};
+uORB::Subscription _vehicle_attitude_setpoint_sub{ORB_ID(vehicle_attitude_setpoint)};
 uORB::Subscription _vehicle_angular_velocity_sub{ORB_ID(vehicle_angular_velocity)};
 uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};
 uORB::Subscription _input_rc_sub{ORB_ID(input_rc)};
@@ -126,6 +128,7 @@ uORB::Publication<vehicle_command_s> _vehicle_command_pub{ORB_ID(vehicle_command
 
 vehicle_local_position_s _vehicle_local_position{};
 vehicle_attitude_s _vehicle_attitude{};
+vehicle_attitude_setpoint_s _vehicle_attitude_setpoint{};
 vehicle_angular_velocity_s _vehicle_angular_velocity{};
 manual_control_setpoint_s _manual_control_setpoint{};
 input_rc_s _input_rc{};
@@ -134,12 +137,14 @@ vehicle_status_s _vehicle_status{};
 
 bool _has_local_position{false};
 bool _has_attitude{false};
+bool _has_attitude_setpoint{false};
 bool _has_angular_velocity{false};
 bool _has_manual_control_setpoint{false};
 bool _has_vehicle_status{false};
 bool _motor_failure_active{false};
 bool _motor_failure_detected{false};
 bool _failure_mode_selected{false};
+bool _altitude_failure_mode_selected{false};
 bool _failure_commanded{false};
 
 px4::atomic_bool _rc_height_control_enabled{false};

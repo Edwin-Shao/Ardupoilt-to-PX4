@@ -1,7 +1,8 @@
 /**
  * Automatically start the L1 failure-mode controller
  *
- * The controller remains idle outside L1 Failure mode.
+ * The controller remains idle outside the L1 position and altitude
+ * failure modes.
  *
  * @boolean
  * @group L1 Adaptive Control

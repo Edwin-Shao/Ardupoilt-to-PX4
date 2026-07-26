@@ -1,77 +1,58 @@
 --- a/msg/versioned/VehicleStatus.msg
 +++ b/msg/versioned/VehicleStatus.msg
-@@ -49,7 +49,7 @@
- uint8 NAVIGATION_STATE_TERMINATION = 13         # Termination mode
- uint8 NAVIGATION_STATE_OFFBOARD = 14
- uint8 NAVIGATION_STATE_STAB = 15                # Stabilized mode
+@@ -43 +43 @@
+-uint8 NAVIGATION_STATE_FREE5 = 7
++uint8 NAVIGATION_STATE_L1_FAILURE_ALT = 7      # L1 adaptive altitude single-motor failure mode
+@@ -52 +52 @@
 -uint8 NAVIGATION_STATE_FREE1 = 16
 +uint8 NAVIGATION_STATE_L1_FAILURE = 16          # L1 adaptive single-motor failure mode
- uint8 NAVIGATION_STATE_AUTO_TAKEOFF = 17        # Takeoff
- uint8 NAVIGATION_STATE_AUTO_LAND = 18           # Land
- uint8 NAVIGATION_STATE_AUTO_FOLLOW_TARGET = 19  # Auto Follow
 --- a/src/modules/commander/module.yaml
 +++ b/src/modules/commander/module.yaml
-@@ -39,6 +39,7 @@
-                 12: Follow Me
-                 13: Precision Land
-                 16: Altitude Cruise
+@@ -41,0 +42,2 @@
 +                17: L1 Failure
-                 100: External Mode 1
-                 101: External Mode 2
-                 102: External Mode 3
++                18: L1 Altitude Failure
 --- a/src/modules/manual_control/ManualControl.cpp
 +++ b/src/modules/manual_control/ManualControl.cpp
-@@ -591,6 +591,7 @@
- 		case 14: return vehicle_status_s::NAVIGATION_STATE_ORBIT;
- 		case 15: return vehicle_status_s::NAVIGATION_STATE_AUTO_VTOL_TAKEOFF;
- 		case 16: return vehicle_status_s::NAVIGATION_STATE_ALTITUDE_CRUISE;
+@@ -593,0 +594,2 @@
 +		case 17: return vehicle_status_s::NAVIGATION_STATE_L1_FAILURE;
- 
- 		case 100: return vehicle_status_s::NAVIGATION_STATE_EXTERNAL1;
- 		case 101: return vehicle_status_s::NAVIGATION_STATE_EXTERNAL2;
++		case 18: return vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT;
 --- a/src/modules/commander/px4_custom_mode.h
 +++ b/src/modules/commander/px4_custom_mode.h
-@@ -79,7 +79,8 @@
- enum PX4_CUSTOM_SUB_MODE_POSCTL {
- 	PX4_CUSTOM_SUB_MODE_POSCTL_POSCTL = 0,
- 	PX4_CUSTOM_SUB_MODE_POSCTL_ORBIT,
+@@ -82 +82,7 @@
 -	PX4_CUSTOM_SUB_MODE_POSCTL_SLOW
 +	PX4_CUSTOM_SUB_MODE_POSCTL_SLOW,
 +	PX4_CUSTOM_SUB_MODE_POSCTL_L1_FAILURE
- };
- 
- union px4_custom_mode {
-@@ -126,6 +127,11 @@
- 		custom_mode.sub_mode = PX4_CUSTOM_SUB_MODE_POSCTL_SLOW;
- 		break;
- 
++};
++
++enum PX4_CUSTOM_SUB_MODE_ALTCTL {
++	PX4_CUSTOM_SUB_MODE_ALTCTL_ALTCTL = 0,
++	PX4_CUSTOM_SUB_MODE_ALTCTL_L1_FAILURE
+@@ -126,0 +133,10 @@
++		break;
++
 +	case vehicle_status_s::NAVIGATION_STATE_L1_FAILURE:
 +		custom_mode.main_mode = PX4_CUSTOM_MAIN_MODE_POSCTL;
 +		custom_mode.sub_mode = PX4_CUSTOM_SUB_MODE_POSCTL_L1_FAILURE;
 +		break;
 +
- 	case vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION:
- 		custom_mode.main_mode = PX4_CUSTOM_MAIN_MODE_AUTO;
- 		custom_mode.sub_mode = PX4_CUSTOM_SUB_MODE_AUTO_MISSION;
++	case vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT:
++		custom_mode.main_mode = PX4_CUSTOM_MAIN_MODE_ALTCTL;
++		custom_mode.sub_mode = PX4_CUSTOM_SUB_MODE_ALTCTL_L1_FAILURE;
 --- a/src/modules/commander/Commander.cpp
 +++ b/src/modules/commander/Commander.cpp
-@@ -825,6 +825,10 @@
- 
- 					case PX4_CUSTOM_SUB_MODE_POSCTL_SLOW:
- 						desired_nav_state = vehicle_status_s::NAVIGATION_STATE_POSITION_SLOW;
+@@ -814 +814,3 @@
+-					desired_nav_state = vehicle_status_s::NAVIGATION_STATE_ALTCTL;
++					desired_nav_state = custom_sub_mode == PX4_CUSTOM_SUB_MODE_ALTCTL_L1_FAILURE
++							    ? vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT
++							    : vehicle_status_s::NAVIGATION_STATE_ALTCTL;
+@@ -827,0 +830,4 @@
 +						break;
 +
 +					case PX4_CUSTOM_SUB_MODE_POSCTL_L1_FAILURE:
 +						desired_nav_state = vehicle_status_s::NAVIGATION_STATE_L1_FAILURE;
- 						break;
- 					}
- 
 --- a/src/modules/commander/ModeUtil/control_mode.cpp
 +++ b/src/modules/commander/ModeUtil/control_mode.cpp
-@@ -84,6 +84,19 @@
- 		vehicle_control_mode.flag_control_allocation_enabled = true;
- 		break;
- 
+@@ -86,0 +87,24 @@
 +	case vehicle_status_s::NAVIGATION_STATE_L1_FAILURE:
 +		vehicle_control_mode.flag_control_manual_enabled = true;
 +		vehicle_control_mode.flag_control_position_enabled = true;
@@ -85,26 +66,27 @@
 +		vehicle_control_mode.flag_control_allocation_enabled = true;
 +		break;
 +
- 	case vehicle_status_s::NAVIGATION_STATE_AUTO_RTL:
- 	case vehicle_status_s::NAVIGATION_STATE_AUTO_LAND:
- 	case vehicle_status_s::NAVIGATION_STATE_AUTO_PRECLAND:
++	case vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT:
++		vehicle_control_mode.flag_control_manual_enabled = true;
++		vehicle_control_mode.flag_control_altitude_enabled = true;
++		vehicle_control_mode.flag_control_climb_rate_enabled = true;
++		vehicle_control_mode.flag_control_attitude_enabled = true;
++		// The altitude task keeps the normal throttle-stick climb-rate logic,
++		// while L1 publishes the final thrust and torque setpoints.
++		vehicle_control_mode.flag_control_rates_enabled = false;
++		vehicle_control_mode.flag_control_allocation_enabled = true;
++		break;
++
 --- a/src/modules/commander/ModeUtil/conversions.hpp
 +++ b/src/modules/commander/ModeUtil/conversions.hpp
-@@ -54,6 +54,8 @@
- 
- 	case vehicle_status_s::NAVIGATION_STATE_POSCTL: return navigation_mode_t::posctl;
- 
+@@ -56,0 +57,4 @@
 +	case vehicle_status_s::NAVIGATION_STATE_L1_FAILURE: return navigation_mode_t::posctl;
 +
- 	case vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION: return navigation_mode_t::auto_mission;
- 
- 	case vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER: return navigation_mode_t::auto_loiter;
++	case vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT: return navigation_mode_t::altctl;
++
 --- a/src/modules/commander/ModeUtil/mode_requirements.cpp
 +++ b/src/modules/commander/ModeUtil/mode_requirements.cpp
-@@ -83,6 +83,15 @@
- 	setRequirement(vehicle_status_s::NAVIGATION_STATE_POSCTL, flags.mode_req_local_position_relaxed);
- 	setRequirement(vehicle_status_s::NAVIGATION_STATE_POSCTL, flags.mode_req_manual_control);
- 
+@@ -85,0 +86,17 @@
 +	// NAVIGATION_STATE_L1_FAILURE
 +	setRequirement(vehicle_status_s::NAVIGATION_STATE_L1_FAILURE, flags.mode_req_angular_velocity);
 +	setRequirement(vehicle_status_s::NAVIGATION_STATE_L1_FAILURE, flags.mode_req_attitude);
@@ -114,54 +96,44 @@
 +	// Enter only after a normal takeoff; never arm with a motor already disabled.
 +	setRequirement(vehicle_status_s::NAVIGATION_STATE_L1_FAILURE, flags.mode_req_prevent_arming);
 +
- 	// NAVIGATION_STATE_POSITION_SLOW
- 	setRequirement(vehicle_status_s::NAVIGATION_STATE_POSITION_SLOW, flags.mode_req_angular_velocity);
- 	setRequirement(vehicle_status_s::NAVIGATION_STATE_POSITION_SLOW, flags.mode_req_attitude);
++	// NAVIGATION_STATE_L1_FAILURE_ALT
++	setRequirement(vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT, flags.mode_req_angular_velocity);
++	setRequirement(vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT, flags.mode_req_attitude);
++	setRequirement(vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT, flags.mode_req_local_alt);
++	setRequirement(vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT, flags.mode_req_local_position_relaxed);
++	setRequirement(vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT, flags.mode_req_manual_control);
++	setRequirement(vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT, flags.mode_req_prevent_arming);
++
 --- a/src/modules/flight_mode_manager/FlightModeManager.cpp
 +++ b/src/modules/flight_mode_manager/FlightModeManager.cpp
-@@ -204,7 +204,9 @@
- 	}
- 
- 	// Manual position control
+@@ -207 +207,3 @@
 -	if ((_vehicle_status_sub.get().nav_state == vehicle_status_s::NAVIGATION_STATE_POSCTL) || task_failure) {
 +	if ((_vehicle_status_sub.get().nav_state == vehicle_status_s::NAVIGATION_STATE_POSCTL)
 +	    || (_vehicle_status_sub.get().nav_state == vehicle_status_s::NAVIGATION_STATE_L1_FAILURE)
 +	    || task_failure) {
- 		found_some_task = true;
- 		FlightTaskError error = FlightTaskError::NoError;
- 
+@@ -233 +235,3 @@
+-	if ((_vehicle_status_sub.get().nav_state == vehicle_status_s::NAVIGATION_STATE_ALTCTL) || task_failure) {
++	if ((_vehicle_status_sub.get().nav_state == vehicle_status_s::NAVIGATION_STATE_ALTCTL)
++	    || (_vehicle_status_sub.get().nav_state == vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT)
++	    || task_failure) {
 --- a/src/lib/modes/ui.hpp
 +++ b/src/lib/modes/ui.hpp
-@@ -57,6 +57,7 @@
- 	       (1u << vehicle_status_s::NAVIGATION_STATE_TERMINATION) |
- 	       (1u << vehicle_status_s::NAVIGATION_STATE_OFFBOARD) |
- 	       (1u << vehicle_status_s::NAVIGATION_STATE_STAB) |
+@@ -59,0 +60,2 @@
 +	       (1u << vehicle_status_s::NAVIGATION_STATE_L1_FAILURE) |
- 	       (1u << vehicle_status_s::NAVIGATION_STATE_AUTO_TAKEOFF) |
- 	       (1u << vehicle_status_s::NAVIGATION_STATE_AUTO_LAND) |
- 	       (1u << vehicle_status_s::NAVIGATION_STATE_AUTO_FOLLOW_TARGET) |
-@@ -84,7 +85,7 @@
- 	"Termination",
- 	"Offboard",
- 	"Stabilized",
++	       (1u << vehicle_status_s::NAVIGATION_STATE_L1_FAILURE_ALT) |
+@@ -78 +80 @@
+-	"7: unallocated",
++	"L1 Altitude Failure",
+@@ -87 +89 @@
 -	"16: UNUSED2",
 +	"L1 Failure",
- 	"Takeoff",
- 	"Land",
- 	"Follow Target",
 --- a/ROMFS/px4fmu_common/init.d/rc.mc_apps
 +++ b/ROMFS/px4fmu_common/init.d/rc.mc_apps
-@@ -15,6 +15,13 @@
- #
- mc_rate_control start
- 
+@@ -17,0 +18,6 @@
 +if param compare L1_FAIL_EN 1
 +then
-+	param set -s SYS_FAILURE_EN 1
-+	param set -s CA_FAILURE_MODE 1
++	param set SYS_FAILURE_EN 1
++	param set CA_FAILURE_MODE 1
 +	l1_adaptive_control start
 +fi
 +
- #
- # Start Multicopter Attitude Controller.
- #

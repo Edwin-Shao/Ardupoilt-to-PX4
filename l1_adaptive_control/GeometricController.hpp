@@ -26,6 +26,9 @@ float target_yaw_rate{0.f};
 float target_yaw_accel{0.f};
 bool yaw_control_enabled{true};
 
+bool manual_tilt_enabled{false};
+float manual_desired_body_z_axis_ned[3]{0.f, 0.f, 1.f};
+
 bool state_valid_for_control{false};
 bool armed{false};
 bool failsafe{false};
