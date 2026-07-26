@@ -86,6 +86,24 @@ l1_adaptive_control status
 listener vehicle_local_position 1
 listener failure_detector_status 1
 
+circle 分支圆轨迹测试：
+
+飞机稳定悬停后，开始圆轨迹：
+
+l1_adaptive_control trajectory circle
+
+查看当前轨迹目标：
+
+l1_adaptive_control trajectory status
+
+停止圆轨迹并在当前位置悬停：
+
+l1_adaptive_control trajectory hover
+
+默认轨迹为半径 1 m、切向速度 0.5 m/s。切换到圆轨迹时先用
+2 s 平滑过渡到圆周起点；hover 与 circle 使用同一个轨迹函数，
+其中 hover 等价于速度为 0。
+
 
 四、SITL 键盘控制
 
@@ -266,15 +284,46 @@ MAX_L1_ROLL_PITCH_MOMENT_NM = 0.35
 MAX_L1_YAW_MOMENT_NM = 0.20
 FAILED_MOTOR_INSTANCE = 1
 
+移植前后的控制参数变量名对应关系：
+
+kg_vehicleMass -> VEHICLE_MASS_KG
+J -> JXX_KGM2、JYY_KGM2、JZZ_KGM2
+Jinv -> JINV_XX、JINV_YY、JINV_ZZ
+
+g.GeoCtrl_Kpx -> KP_X
+g.GeoCtrl_Kpy -> KP_Y
+g.GeoCtrl_Kpz -> KP_Z
+g.GeoCtrl_Kvx -> KV_X
+g.GeoCtrl_Kvy -> KV_Y
+g.GeoCtrl_Kvz -> KV_Z
+g.GeoCtrl_KRx -> KR_X
+g.GeoCtrl_KRy -> KR_Y
+g.GeoCtrl_KRz -> KR_Z
+g.GeoCtrl_KOx -> KO_X
+g.GeoCtrl_KOy -> KO_Y
+g.GeoCtrl_KOz -> KO_Z
+
+g.l1enable -> L1_ENABLE
+g.Asv -> L1_AS_V
+g.Asomega -> L1_AS_OMEGA
+g.ctoffq1Thrust -> L1_CUTOFF_Q1_THRUST
+g.ctoffq1Moment -> L1_CUTOFF_Q1_MOMENT
+g.ctoffq2Moment -> L1_CUTOFF_Q2_MOMENT
+
+L -> ROLL_ARM_M
+D -> PITCH_ARM_M
+a_F、b_F -> MAX_MOTOR_THRUST_N 计算式中的两个推力曲线系数
+a_M、b_M -> 无直接对应变量，由 PX4 控制分配器处理力矩输出
+
 修改质量或惯量时必须同时修改上述两个 .cpp 文件。JINV_XX、JINV_YY、
 JINV_ZZ 分别等于三个惯量的倒数，不能作为独立参数随意调整。
 
 起飞、圆轨迹和手动高度参数：
 
-./Ardupoilt-to-PX4/l1_adaptive_control/TrajectoryGenerator.hpp:113-120
+./Ardupoilt-to-PX4/l1_adaptive_control/TrajectoryGenerator.hpp:116-124
 
 TAKEOFF_HEIGHT_M、TAKEOFF_DURATION_S
-CIRCLE_RADIUS_M、CIRCLE_SPEED_M_S
+CIRCLE_RADIUS_M、CIRCLE_SPEED_M_S、CIRCLE_TRANSITION_DURATION_S
 MANUAL_HEIGHT_DEADZONE、MANUAL_MAX_CLIMB_RATE_M_S
 MANUAL_MIN_HEIGHT_M、MANUAL_MAX_HEIGHT_M
 
