@@ -1,62 +1,98 @@
 # L1Quad Controller for PX4 v1.17.0
 
-This repository contains the PX4 port of the L1 adaptive geometric controller
-from [L1Quad](https://github.com/sigma-pi/L1Quad). It is intentionally kept
-separate from the full PX4 source tree.
+PX4 v1.17.0 port of the L1 adaptive geometric controller from
+[L1Quad](https://github.com/sigma-pi/L1Quad).
+
+The original ArduPilot implementation computes motor commands directly. This
+port integrates the controller with PX4's estimator, uORB setpoints and control
+allocator:
+
+```text
+PX4 state estimates
+  → trajectory and manual input
+  → geometric controller
+  → L1 adaptive augmentation
+  → thrust/torque setpoints
+  → PX4 control allocator
+  → motors
+```
 
 ## Branches
 
-- `main`: hardware firmware baseline and the verified L1 failure flight modes.
-- `hitl`: Pixhawk 6C Mini SIH/jMAVSim hardware-in-the-loop setup.
-- `sitl`: Gazebo SITL setup, renamed from `simulation`; all existing SITL,
-  keyboard, QGC Joystick and motor-failure testing remains available.
+- `main`: real-hardware baseline and verified L1 failure flight modes.
+- `hitl`: Pixhawk 6C Mini SIH/jMAVSim hardware-in-the-loop configuration.
+- `sitl`: Gazebo Harmonic, keyboard, QGC Joystick and simulated motor failure.
 
-## Included Features
+## Features
 
-- L1 adaptive geometric controller for PX4 v1.17.0.
-- Takeoff, hover and trajectory control.
+- L1 adaptive geometric controller.
 - RC, QGC Joystick and SITL keyboard input.
 - Motor 1 failure injection with yaw control released.
-- `L1 Failure`: Position-based failure mode that holds position and altitude.
-- `L1 Altitude Failure`: Altitude-based failure mode with manual roll/pitch and
-  throttle-controlled climb rate.
-- PX4 integration patch and concise operating guide.
+- `L1 Failure`: Position-based motor-failure mode.
+- `L1 Altitude Failure`: Altitude-based motor-failure mode with manual
+  roll/pitch input.
 
 ## Repository Layout
 
 ```text
-l1_adaptive_control/       L1 controller module
-l1_keyboard_throttle/      SITL keyboard input
-patches/                   PX4 v1.17.0 integration patches
-scripts/                   setup helpers
-PX4-Autopilot/             PX4 source submodule when present on the branch
-指导.txt                    SITL and HITL operating guide
+./l1_adaptive_control/             L1 controller module
+./l1_keyboard_throttle/            SITL keyboard input
+./patches/                         PX4 v1.17.0 integration patches
+./scripts/                         setup helpers
+./firmware/pixhawk6cmini/          prebuilt Pixhawk 6C Mini firmware
+./指导.txt                          operating guide
 ```
 
-## Use With PX4
+This repository contains the port and its integration files, not a complete
+copy of PX4.
 
-Clone the branch required for the test:
+## References
 
-```bash
-git clone --recurse-submodules -b sitl https://github.com/Edwin-Shao/Ardupoilt-to-PX4.git
-```
+- [Original L1Quad repository](https://github.com/sigma-pi/L1Quad)
+- [PX4 Autopilot](https://github.com/PX4/PX4-Autopilot)
+- Target PX4 release: `v1.17.0`
 
-For HITL, replace `sitl` with `hitl`. Copy the two modules into
-`PX4-Autopilot/src/modules/`, enable them in the target board configuration,
-then apply the matching patch from `patches/`.
+## Suggested Workspace Layout
 
-The current Ubuntu workspaces are:
+The documentation assumes the terminal is opened in a workspace containing:
 
 ```text
-SITL: /home/edwin/PX4-Autopilot-v1.17.0
-HITL: /home/edwin/PX4-Autopilot-v1.17.0-HITL
+./
+├── Ardupoilt-to-PX4/
+├── PX4-Autopilot-v1.17.0/
+├── PX4-Autopilot-v1.17.0-HITL/
+├── PX4-Autopilot-v1.17.0-MAIN/
+└── L1Quad-firmware/
 ```
 
-See [`指导.txt`](指导.txt) for the tested commands, jMAVSim startup order,
-flight-mode configuration and troubleshooting.
+The workspace may be located anywhere. Commands use only relative paths.
+
+## Prebuilt Firmware
+
+The following files target Pixhawk 6C Mini:
+
+```text
+./firmware/pixhawk6cmini/L1Quad-main-pixhawk6cmini.px4
+./firmware/pixhawk6cmini/L1Quad-hitl-pixhawk6cmini.px4
+./firmware/pixhawk6cmini/L1Quad-sitl-pixhawk6cmini.px4
+```
+
+Use `main` for real-hardware preparation and `hitl` for SIH/jMAVSim. The
+`sitl` file is a Pixhawk-compatible snapshot of the SITL branch; Gazebo SITL
+itself runs as a host program.
+
+To flash a file, open QGroundControl and select:
+
+```text
+Vehicle Setup → Firmware → Advanced settings → Custom firmware file
+```
+
+Remove all propellers before flashing or testing custom firmware.
+
+See [`指导.txt`](指导.txt) for build, SITL/HITL operation and troubleshooting.
 
 ## Safety
 
 This is research flight-control software. Complete SITL and propeller-free
-HITL tests before real flight, and always switch into a failure mode only after
-a stable normal takeoff.
+HITL tests before real flight. Enter a failure mode only after a stable normal
+takeoff.
