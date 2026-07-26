@@ -99,7 +99,7 @@ void update_internal_state();
 void update_trajectory_input();
 void run_trajectory_generator();
 void update_manual_height_control_input();
-void update_manual_motor_failure_switch();
+void update_failure_mode();
 void publish_motor_failure_command(uint8_t failure_type);
 void apply_trajectory_command();
 
@@ -138,13 +138,14 @@ bool _has_angular_velocity{false};
 bool _has_manual_control_setpoint{false};
 bool _has_vehicle_status{false};
 bool _motor_failure_active{false};
+bool _motor_failure_detected{false};
+bool _failure_mode_selected{false};
+bool _failure_commanded{false};
 
 px4::atomic_bool _rc_height_control_enabled{false};
 px4::atomic<uint8_t> _trajectory_command_mode{static_cast<uint8_t>(TrajectoryGenerator::CommandedMode::Hover)};
 bool _manual_height_control_valid{false};
 float _manual_height_stick{0.f};
-bool _motor_failure_switch_ready{false};
-bool _motor_failure_switch_high{false};
 
 InternalState _state{};
 bool _state_valid_for_control{false};

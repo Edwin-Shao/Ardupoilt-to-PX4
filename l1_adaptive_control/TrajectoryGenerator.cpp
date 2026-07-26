@@ -55,12 +55,14 @@ _start_position_ned[0] = input.current_position_ned[0];
 _start_position_ned[1] = input.current_position_ned[1];
 _start_position_ned[2] = input.current_position_ned[2];
 
-_takeoff_target_position_ned[0] = _start_position_ned[0];
-_takeoff_target_position_ned[1] = _start_position_ned[1];
+copy3(_start_position_ned, _takeoff_target_position_ned);
+_skip_takeoff = input.initialize_in_hover;
 
-// NED convention:
-// z becomes more negative when the vehicle moves upward.
-_takeoff_target_position_ned[2] = _start_position_ned[2] - TAKEOFF_HEIGHT_M;
+if (!_skip_takeoff) {
+	// NED convention: z becomes more negative when the vehicle moves upward.
+	_takeoff_target_position_ned[2] = _start_position_ned[2] - TAKEOFF_HEIGHT_M;
+}
+
 copy3(_takeoff_target_position_ned, _hover_position_ned);
 copy3(_hover_position_ned, _circle_center_position_ned);
 
@@ -76,7 +78,7 @@ output.yaw = _start_yaw;
 output.yaw_rate = 0.f;
 output.yaw_accel = 0.f;
 
-if (elapsed_s < TAKEOFF_DURATION_S) {
+if (!_skip_takeoff && elapsed_s < TAKEOFF_DURATION_S) {
 output.mode = Mode::Takeoff;
 _manual_hold_initialized = false;
 
@@ -122,6 +124,7 @@ return true;
 void TrajectoryGenerator::reset()
 {
 _initialized = false;
+_skip_takeoff = false;
 _start_time_us = 0;
 _last_update_us = 0;
 _manual_hold_initialized = false;
@@ -203,7 +206,9 @@ const float target_vz_ned = -stick * MANUAL_MAX_CLIMB_RATE_M_S;
 _manual_hold_position_ned[2] += target_vz_ned * dt;
 
 const float min_z_ned = _start_position_ned[2] - MANUAL_MAX_HEIGHT_M;
-const float max_z_ned = _start_position_ned[2] - MANUAL_MIN_HEIGHT_M;
+const float max_z_ned = _skip_takeoff
+			? _start_position_ned[2] + MANUAL_MAX_HEIGHT_M
+			: _start_position_ned[2] - MANUAL_MIN_HEIGHT_M;
 _manual_hold_position_ned[2] = math::constrain(_manual_hold_position_ned[2], min_z_ned, max_z_ned);
 
 _hover_position_ned[2] = _manual_hold_position_ned[2];

@@ -32,6 +32,7 @@ float current_yaw{0.f};
 bool state_valid_for_control{false};
 bool armed{false};
 bool failsafe{false};
+bool initialize_in_hover{false};
 uint8_t nav_state{0};
 
 float manual_height_stick{0.f};
@@ -87,6 +88,7 @@ void reset_circle_state();
 void sync_hover_reference_from_output(const Output &output);
 
 bool _initialized{false};
+bool _skip_takeoff{false};
 
 hrt_abstime _start_time_us{0};
 

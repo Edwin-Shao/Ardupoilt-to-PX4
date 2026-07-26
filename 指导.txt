@@ -258,6 +258,7 @@ l1_keyboard_throttle start
 
 0 会真实注入 Motor 1 off。普通四旋翼单电机完全失能后不保证还能稳定悬停。
 
+
 5. MAVLink only on localhost 是错误吗？
 
 不是。这只是提示 MAVLink 只监听本机。
@@ -333,32 +334,34 @@ SYS_FAILURE_EN 是 PX4 的故障注入总开关。它从 0 改为 1 后必须重
 关闭并按第一步重新启动。
 
 
-3. 每次飞控重启后启动 L1
+3. 配置 L1 Failure 飞行模式
 
 开始前确认：
 
 - 油门最低：CH3 约 1087
 - 飞控锁定：CH5 约 1087
-- 失效拨杆高位安全：CH6 约 1940
+- 模式拨杆在 Position 安全位置
 - jMAVSim 模型水平
 
-然后在 QGC MAVLink Console 中依次输入：
+在 QGC 的 Flight Modes 页面，将拨杆的安全位置设为 Position，
+失效位置设为 L1 Failure。具体使用哪个通道由 QGC 配置决定，
+代码不再固定使用 CH6。
 
-mc_rate_control stop
-l1_adaptive_control start
-l1_adaptive_control rc_control enable
+新固件启动时会自动完成以下工作：
 
-检查：
+- 启动 l1_adaptive_control
+- 启用 RC 高度输入
+- 设置 SYS_FAILURE_EN = 1
+- 设置 CA_FAILURE_MODE = 1
+- 保持 mc_rate_control 运行，并在切入失效模式时自动交接输出
 
-l1_adaptive_control status
-
-L1 模块不会在飞控重启后自动恢复运行，因此每次重启都要重新执行
-以上三条命令。
+正常切换模式不需要在 pxh> 或 QGC Console 输入命令。L1 在 Position
+等普通模式下保持空闲，不会与 PX4 原控制器同时输出。
 
 
 4. 正常悬停测试
 
-1. CH6 保持高位安全。
+1. 模式拨杆保持在 Position。
 2. 将 CH5 拨到解锁位。
 3. 缓慢增加油门，升到约 1.5-2 米。
 4. 稳定悬停 5-10 秒。
@@ -367,21 +370,24 @@ L1 模块不会在飞控重启后自动恢复运行，因此每次重启都要�
 
 5. 单电机失效测试
 
-稳定悬停后，将 CH6 从高位拨到低位（约 1087），触发 Motor 1 off。
+稳定悬停并将油门放在中位附近后，把模式拨杆从 Position 切到
+L1 Failure。
 
 预期现象：
 
+- L1 从切换瞬间的当前位置接管。
 - Motor 1 停转。
 - 控制器放弃偏航控制，飞机会持续旋转。
 - 当前参数下可能缓慢下降。
-- 将 CH6 拨回高位会发送 Motor 1 恢复命令。
+- 拨回 Position 后 Motor 1 自动恢复，PX4 原控制器重新接管。
 
-如果姿态快速恶化，立即把 CH6 拨回高位，然后降低油门、降落并锁定。
+禁止在 L1 Failure 模式下解锁。如果姿态快速恶化，立即拨回
+Position，然后降低油门、降落并锁定。
 
 
 6. 结束顺序
 
-1. CH6 回到高位安全。
+1. 模式拨杆回到 Position。
 2. 油门降到最低并落地。
 3. CH5 拨到锁定位。
 4. 关闭 QGC。
@@ -400,23 +406,21 @@ QGC 或旧的 jMAVSim 正在占用飞控 USB。关闭 QGC 和旧 jMAVSim，
 USB 重新枚举后 jMAVSim 可能不会自动重连。关闭 jMAVSim，重新运行
 第一步命令，再打开 QGC。
 
-CH6 数值变化，但电机没有停转：
+切换后没有进入 L1 Failure：
 
 检查：
 
-param show RC_MAP_AUX1
+l1_adaptive_control status
+listener vehicle_status 1
+listener failure_detector_status 1
 param show SYS_FAILURE_EN
 param show CA_FAILURE_MODE
 
-应为：
-
-RC_MAP_AUX1 = 6
-SYS_FAILURE_EN = 1
-CA_FAILURE_MODE = 1
-
-如果刚把 SYS_FAILURE_EN 从 0 改为 1，必须重启飞控。
+vehicle_status 的 nav_state 应为 16，两个参数应为 1。如果 QGC 的
+Flight Modes 中没有 L1 Failure，说明尚未刷入包含该模式的新固件，
+或者 QGC 还没有重新加载参数元数据。
 
 模型翻倒后无法继续测试：
 
 先落地锁定并重启飞控，使 SIH 和 EKF 回到水平初始状态；随后重启
-jMAVSim，并重新执行启动 L1 的三条命令。
+jMAVSim。L1 会随飞控自动启动，不需要重新输入控制命令。

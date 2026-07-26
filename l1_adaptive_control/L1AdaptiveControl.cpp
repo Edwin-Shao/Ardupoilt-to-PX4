@@ -33,8 +33,6 @@ static constexpr float MAX_L1_THRUST_N = VEHICLE_MASS_KG * GRAVITY_MSS * 0.35f;
 static constexpr float MAX_L1_ROLL_PITCH_MOMENT_NM = 0.35f;
 static constexpr float MAX_L1_YAW_MOMENT_NM = 0.20f;
 static constexpr hrt_abstime MANUAL_CONTROL_TIMEOUT_US = 500000;
-static constexpr float MOTOR_FAILURE_SWITCH_LOW = 0.25f;
-static constexpr float MOTOR_FAILURE_SWITCH_HIGH = 0.5f;
 static constexpr uint8_t FAILED_MOTOR_INSTANCE = 1;
 
 float dot3(const float a[3], const float b[3])
@@ -112,6 +110,10 @@ ScheduledWorkItem(MODULE_NAME, px4::wq_configurations::nav_and_controllers)
 
 L1AdaptiveControl::~L1AdaptiveControl()
 {
+if (_failure_commanded) {
+publish_motor_failure_command(vehicle_command_s::FAILURE_TYPE_OK);
+}
+
 perf_free(_loop_perf);
 perf_free(_loop_interval_perf);
 }
@@ -140,7 +142,7 @@ perf_count(_loop_interval_perf);
 
 update_subscriptions();
 update_internal_state();
-update_manual_motor_failure_switch();
+update_failure_mode();
 
 apply_trajectory_command();
 update_trajectory_input();
@@ -182,16 +184,8 @@ _has_manual_control_setpoint = true;
 _input_rc_sub.update(&_input_rc);
 
 if (_failure_detector_status_sub.update(&_failure_detector_status)) {
-	const bool motor_failure_active = _failure_detector_status.motor_failure_mask != 0
-					 || _failure_detector_status.motor_stop_mask != 0;
-
-	if (motor_failure_active != _motor_failure_active) {
-		_motor_failure_active = motor_failure_active;
-		reset_l1_adaptive_state();
-		PX4_WARN("motor-out mode %s: yaw control %s",
-			  _motor_failure_active ? "active" : "inactive",
-			  _motor_failure_active ? "released" : "restored");
-	}
+	_motor_failure_detected = _failure_detector_status.motor_failure_mask != 0
+				  || _failure_detector_status.motor_stop_mask != 0;
 }
 
 if (_vehicle_status_sub.update(&_vehicle_status)) {
@@ -259,12 +253,13 @@ _trajectory_input.current_position_ned[i] = _state.position_ned[i];
 _trajectory_input.current_yaw = yaw_from_quat_body_to_ned(_state.quat_body_to_ned);
 
 _trajectory_input.state_valid_for_control = _state_valid_for_control;
-_trajectory_input.armed = _state.armed;
+_trajectory_input.armed = _state.armed && _failure_mode_selected;
 _trajectory_input.failsafe = _state.failsafe;
 _trajectory_input.nav_state = _state.nav_state;
+_trajectory_input.initialize_in_hover = true;
 
 update_manual_height_control_input();
-_trajectory_input.manual_height_control_enabled = _rc_height_control_enabled.load();
+_trajectory_input.manual_height_control_enabled = _failure_mode_selected || _rc_height_control_enabled.load();
 _trajectory_input.manual_height_control_valid = _manual_height_control_valid;
 _trajectory_input.manual_height_stick = _manual_height_stick;
 }
@@ -291,7 +286,7 @@ void L1AdaptiveControl::update_manual_height_control_input()
 	_manual_height_control_valid = false;
 	_manual_height_stick = 0.f;
 
-	if (!_rc_height_control_enabled.load()) {
+	if (!_failure_mode_selected && !_rc_height_control_enabled.load()) {
 		return;
 	}
 
@@ -330,50 +325,34 @@ void L1AdaptiveControl::publish_motor_failure_command(uint8_t failure_type)
 	_vehicle_command_pub.publish(command);
 }
 
-void L1AdaptiveControl::update_manual_motor_failure_switch()
+void L1AdaptiveControl::update_failure_mode()
 {
-	const hrt_abstime now_us = hrt_absolute_time();
-	const bool input_valid = _has_manual_control_setpoint
-				 && _manual_control_setpoint.valid
-				 && PX4_ISFINITE(_manual_control_setpoint.aux1)
-				 && now_us - _manual_control_setpoint.timestamp_sample <= MANUAL_CONTROL_TIMEOUT_US;
+	const bool selected = _state.nav_state == vehicle_status_s::NAVIGATION_STATE_L1_FAILURE;
 
-	if (!input_valid) {
-		_motor_failure_switch_ready = false;
-		return;
+	if (selected != _failure_mode_selected) {
+		_failure_mode_selected = selected;
+		_trajectory_generator.reset();
+		reset_l1_adaptive_state();
+		PX4_WARN("L1 failure mode %s", selected ? "selected" : "left");
 	}
 
-	const float aux1 = _manual_control_setpoint.aux1;
-
-	if (!_state.armed) {
-		if (_motor_failure_switch_high && aux1 < MOTOR_FAILURE_SWITCH_LOW) {
-			publish_motor_failure_command(vehicle_command_s::FAILURE_TYPE_OK);
-			_motor_failure_switch_high = false;
-		}
-
-		_motor_failure_switch_ready = false;
-		return;
-	}
-
-	if (!_motor_failure_switch_ready) {
-		if (aux1 < MOTOR_FAILURE_SWITCH_LOW) {
-			_motor_failure_switch_ready = true;
-			_motor_failure_switch_high = false;
-			PX4_INFO("AUX1 motor failure switch ready");
-		}
-
-		return;
-	}
-
-	if (!_motor_failure_switch_high && aux1 > MOTOR_FAILURE_SWITCH_HIGH) {
+	if (_failure_mode_selected && _state.armed && !_failure_commanded) {
 		publish_motor_failure_command(vehicle_command_s::FAILURE_TYPE_OFF);
-		_motor_failure_switch_high = true;
-		PX4_WARN("Motor 1 failure requested by AUX1");
+		_failure_commanded = true;
+		PX4_WARN("Motor 1 failure requested by L1 failure mode");
 
-	} else if (_motor_failure_switch_high && aux1 < MOTOR_FAILURE_SWITCH_LOW) {
+	} else if (_failure_commanded && (!_failure_mode_selected || !_state.armed)) {
 		publish_motor_failure_command(vehicle_command_s::FAILURE_TYPE_OK);
-		_motor_failure_switch_high = false;
-		PX4_INFO("Motor 1 restore requested by AUX1");
+		_failure_commanded = false;
+		PX4_INFO("Motor 1 restored after leaving L1 failure mode");
+	}
+
+	if (_motor_failure_detected != _motor_failure_active) {
+		_motor_failure_active = _motor_failure_detected;
+		reset_l1_adaptive_state();
+		PX4_WARN("motor-out mode %s: yaw control %s",
+			  _motor_failure_active ? "active" : "inactive",
+			  _motor_failure_active ? "released" : "restored");
 	}
 }
 
@@ -442,7 +421,8 @@ void L1AdaptiveControl::run_l1_adaptive_augmentation()
 		_combined_thrust_moment[i] = 0.f;
 	}
 
-	if (!_geometric_output.valid || !_state_valid_for_control || !_state.armed || _state.failsafe) {
+	if (!_failure_mode_selected || !_geometric_output.valid || !_state_valid_for_control || !_state.armed
+	    || _state.failsafe) {
 		reset_l1_adaptive_state();
 		return;
 	}
